@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mpyportfolio"
+version = "0.1.0"
+description = "Easily analyze portfolio earnings, track investments, and calculate returns with this Python module."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Iván Moreno Muñoz", email = "imoremu@gmail.com" }
+]
+urls = { "Homepage" = "https://github.com/imoremu/pyportfolio" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+dependencies = []
+requires-python = ">=3.6"

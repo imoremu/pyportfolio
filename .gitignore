@@ -1,4 +1,68 @@
-.venv/
-.vscode/
-.pytest_cache/
+# Compilación de Python
 __pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+env/
+venv/
+ENV/
+.venv/
+.ENV/
+
+# Archivos de configuración de Python
+*.egg-info/
+*.egg
+*.pyo
+
+# Distribución
+build/
+dist/
+*.whl
+*.egg
+*.tar.gz
+*.zip
+
+# Archivos creados por pytest
+.pytest_cache/
+
+# Archivos creados por herramientas de testing y cobertura
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Archivos temporales y logs
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.~ 
+.DS_Store
+
+# Archivos generados por editores
+.vscode/
+.idea/
+*.iml
+
+# Archivos de instalación de PyPI
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Archivos de configuración local
+*.env
+.env.*
+
+# Archivos de configuración de MyPy
+.mypy_cache/
+
+# Archivos de configuración de Pylint
+.pylint.d/
+
+# Otros archivos generados
+*.sqlite3
