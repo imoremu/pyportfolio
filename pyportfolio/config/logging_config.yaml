@@ -1,0 +1,36 @@
+version: 1  # Required schema version
+disable_existing_loggers: False  # Keep existing loggers (like library loggers) active
+
+formatters:
+  simple:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: DEBUG  
+    formatter: simple
+    stream: ext://sys.stdout  # Log to the console (standard output)
+
+  # --- Optional: File Handler ---
+  # file:
+  #   class: logging.FileHandler
+  #   level: DEBUG # Log DEBUG and above to the file
+  #   formatter: simple
+  #   filename: my_application.log # Specify the log file name
+  #   mode: a # 'a' to append, 'w' to overwrite
+
+loggers:
+  # Example: Configure a specific logger for your calculator module
+  pyportfolio.calculators.irpf_earnings_calculator:
+    level: DEBUG # Set specific level for this logger (e.g., DEBUG for more detail)
+    handlers: [console] # Use the console handler (add 'file' if using file handler)
+    propagate: False # Prevent messages from also going to the root logger handlers if True
+
+root:
+  level: INFO  # Set the lowest severity level for the root logger
+  handlers: [console] # List handlers for the root logger (catches everything not handled by specific loggers)
+  # --- OR ---
+  # If using file logging, you might want both:
+  # handlers: [console, file]
