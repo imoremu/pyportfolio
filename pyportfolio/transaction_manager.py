@@ -1,13 +1,27 @@
+# pyportfolio/transaction_manager.py
+
 import pandas as pd
-from typing import Dict, Optional, Tuple, List, Union, Sequence, Any # Added List, Union, Sequence, Any
-from pyportfolio.calculators.base_calculator import BaseCalculator
+from typing import Dict, Optional, Tuple, List, Union, Sequence, Any, Callable
+# Import base classes
+from pyportfolio.calculators.base_calculator import BaseRowCalculator, BaseTableCalculator
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TransactionManager:
     """
     Generic transaction manager. Allows registering multiple calculations
-    for specific columns, then iterates over the DataFrame to populate them.
-    A single calculator can be registered to populate one or multiple columns.
-    Optionally, each calculation can specify target dtypes for the resulting columns.
+    for specific columns or entire DataFrame transformations.
+
+    Calculators can operate in two modes:
+    1. Row-wise (inheriting from BaseRowCalculator): Implement `calculate_row(self, row: pd.Series)`.
+       Registered with specific output column(s) and optional dtype(s).
+    2. Table-wise (inheriting from BaseTableCalculator): Implement `calculate_table(self, df: pd.DataFrame)`.
+       Receives the current state of the DataFrame and returns a DataFrame
+       containing the calculated/updated columns. The returned DataFrame's index
+       MUST align with the input DataFrame's index. When registering a table-wise
+       calculator, the `column` and `dtype` arguments are ignored.
     """
 
     def __init__(self, transactions: pd.DataFrame):
@@ -17,156 +31,203 @@ class TransactionManager:
         Parameters:
         -----------
         transactions : pd.DataFrame
-            A DataFrame representing the transaction data.
+            A DataFrame representing the transaction data. It will be modified in place.
         """
         if not isinstance(transactions, pd.DataFrame):
             raise TypeError("transactions must be a pandas DataFrame")
         self.transactions = transactions
-        # Store registrations as a list to maintain order and handle multi-column calcs
-        # Structure: [(calculator, [col1, col2,...], [dtype1, dtype2,...]), ...]
-        self._registrations: List[Tuple[BaseCalculator, List[str], List[Optional[str]]]] = []
+        # Store: (calculator, columns (for row-wise), dtypes (for row-wise), mode ('row' or 'table'))
+        self._registrations: List[Tuple[Union[BaseRowCalculator, BaseTableCalculator], Optional[List[str]], Optional[List[Optional[str]]], str]] = []
 
-
-    def register_calculation(
-        self,
-        column: Union[str, Sequence[str]],
-        calculator: BaseCalculator,
-        dtype: Union[Optional[str], Sequence[Optional[str]]] = None
-    ):
-        """
-        Registers a calculation for one or more columns using a single calculator.
-
-        Parameters:
-        -----------
-        column : Union[str, Sequence[str]]
-            The name of the column or a sequence (list/tuple) of column names
-            where the calculation's result(s) will be stored.
-        calculator : BaseCalculator
-            An object implementing the BaseCalculator interface. Its `calculate`
-            method should return a single value if `column` is a string, or a
-            sequence of values matching the order of `column` if it's a sequence.
-        dtype : Union[Optional[str], Sequence[Optional[str]]]
-            Optional target dtype(s) for the column(s).
-            - If `column` is a string, `dtype` should be None or a string.
-            - If `column` is a sequence:
-                - `dtype` can be None (no conversion for any column).
-                - `dtype` can be a single string (applied to all columns).
-                - `dtype` can be a sequence of None/string matching the length
-                  and order of `column`.
-        """
-        if not isinstance(calculator, BaseCalculator):
-             raise TypeError("calculator must be an instance of BaseCalculator or its subclass")
-
+    def _validate_row_params(self, column, dtype) -> Tuple[List[str], List[Optional[str]]]:
+        """ Validates 'column' and 'dtype' arguments for row-wise calculators. """
         columns_list: List[str]
         dtypes_list: List[Optional[str]]
 
-        # --- Normalize columns to a list ---
         if isinstance(column, str):
             columns_list = [column]
         elif isinstance(column, (list, tuple)):
             if not all(isinstance(c, str) for c in column):
-                raise TypeError("If 'column' is a sequence, all elements must be strings.")
+                raise TypeError("If 'column' is a sequence (for row-wise), all elements must be strings.")
             if not column:
-                raise ValueError("If 'column' is a sequence, it cannot be empty.")
+                raise ValueError("If 'column' is a sequence (for row-wise), it cannot be empty.")
             columns_list = list(column)
         else:
-            raise TypeError("column must be a string or a sequence of strings")
+            raise TypeError("For row-wise calculators, 'column' must be a string or a sequence of strings")
 
         num_columns = len(columns_list)
 
-        # --- Normalize dtypes to a list matching columns ---
         if isinstance(dtype, str) or dtype is None:
-            # Apply single dtype to all columns
             dtypes_list = [dtype] * num_columns
         elif isinstance(dtype, (list, tuple)):
             if len(dtype) != num_columns:
-                raise ValueError(f"If 'dtype' is a sequence, its length ({len(dtype)}) must match the number of columns ({num_columns}).")
+                raise ValueError(f"If 'dtype' is a sequence (for row-wise), its length ({len(dtype)}) must match the number of columns ({num_columns}).")
             if not all(isinstance(d, (str, type(None))) for d in dtype):
-                 raise TypeError("If 'dtype' is a sequence, all elements must be strings or None.")
+                 raise TypeError("If 'dtype' is a sequence (for row-wise), all elements must be strings or None.")
             dtypes_list = list(dtype)
         else:
-            raise TypeError("dtype must be None, a string, or a sequence of None/string")
+            raise TypeError("For row-wise calculators, 'dtype' must be None, a string, or a sequence of None/string")
 
-        # --- Store the registration ---
-        self._registrations.append((calculator, columns_list, dtypes_list))
+        return columns_list, dtypes_list
+
+    def register_calculation(
+        self,
+        calculator: Union[BaseRowCalculator, BaseTableCalculator],
+        column: Union[str, Sequence[str], None] = None,
+        dtype: Union[Optional[str], Sequence[Optional[str]]] = None
+    ):
+        """
+        Registers a calculation to be performed, detecting if it's row-wise or table-wise.
+
+        Parameters:
+        -----------
+        calculator : Union[BaseRowCalculator, BaseTableCalculator]
+            An object inheriting from BaseRowCalculator or BaseTableCalculator.
+        column : Union[str, Sequence[str], None], optional
+            Required for row-wise calculators (BaseRowCalculator). The name of the
+            column or a sequence of column names where the result(s) will be stored.
+            Ignored for table-wise calculators.
+        dtype : Union[Optional[str], Sequence[Optional[str]]], optional
+            Optional target dtype(s) for the column(s) for row-wise calculators.
+            Ignored for table-wise calculators.
+        """
+        if isinstance(calculator, BaseTableCalculator):
+            mode = 'table'
+            logger.debug(f"Registering {type(calculator).__name__} as table-wise calculator.")
+            if column is not None or dtype is not None:
+                logger.warning(f"'column' and 'dtype' arguments are ignored when registering a BaseTableCalculator ({type(calculator).__name__}).")
+            self._registrations.append((calculator, None, None, mode))
+
+        elif isinstance(calculator, BaseRowCalculator):
+            mode = 'row'
+            if column is None:
+                raise ValueError("Argument 'column' is required for row-wise calculators (BaseRowCalculator).")
+            columns_list, dtypes_list = self._validate_row_params(column, dtype)
+            logger.debug(f"Registering {type(calculator).__name__} as row-wise calculator for column(s): {columns_list}.")
+            self._registrations.append((calculator, columns_list, dtypes_list, mode))
+        else:
+            raise TypeError(f"Calculator must inherit from BaseRowCalculator or BaseTableCalculator, got {type(calculator).__name__}")
 
 
     def process_all(self):
         """
-        Applies each registered calculation to the DataFrame.
-        Handles both single and multi-column calculations.
-        If target dtypes were specified, attempts to convert the columns.
+        Applies each registered calculation to the DataFrame based on its mode
+        (row-wise or table-wise). Modifies the internal DataFrame in place.
         """
-        if self.transactions.empty:
-            # Handle empty DataFrame: Initialize columns if needed, but skip apply
-            for _, columns, dtypes in self._registrations:
-                for col, dt in zip(columns, dtypes):
-                    if col not in self.transactions.columns:
-                        # Initialize with NaN or None based on dtype if possible
-                        init_val = pd.NA if dt == 'float' or pd.api.types.is_numeric_dtype(dt) else None
-                        self.transactions[col] = pd.Series(init_val, index=self.transactions.index, dtype=dt)
-            return # Nothing to process
+        is_initially_empty = self.transactions.empty
 
-        for calculator, columns, dtypes in self._registrations:
-            # --- Apply the calculation ---
-            # apply returns a Series. If the calculator returns single values,
-            # it's a Series of values. If the calculator returns sequences,
-            # it's a Series of sequences (tuples/lists).
-            results = self.transactions.apply(
-                lambda row: calculator.calculate(row), axis=1
-            )
+        if is_initially_empty:
+            logger.info("DataFrame is initially empty. Initializing columns for registered row-wise calculators.")
+            for _, columns, dtypes, mode in self._registrations:
+                if mode == 'row' and columns:
+                    effective_dtypes = dtypes if dtypes else [None] * len(columns)
+                    for col, dt in zip(columns, effective_dtypes):
+                        if col not in self.transactions.columns:
+                            na_val = pd.NA if dt and (pd.api.types.is_numeric_dtype(dt) or pd.api.types.is_datetime64_any_dtype(dt) or pd.api.types.is_bool_dtype(dt)) else None
+                            self.transactions[col] = pd.Series(na_val, index=self.transactions.index, dtype=dt)
+            logger.debug(f"Columns after row-wise init for empty df: {self.transactions.columns.tolist()}")
 
-            # --- Assign results to DataFrame columns ---
-            if len(columns) == 1:
-                # Single column assignment
-                col_name = columns[0]
-                target_dtype = dtypes[0]
-                # Assign directly, pandas handles type inference initially
-                self.transactions[col_name] = results
-                # Apply desired dtype if specified
-                if target_dtype is not None:
-                    try:
-                        self.transactions[col_name] = self.transactions[col_name].astype(target_dtype)
-                    except Exception as e:
-                        print(f"Warning: Could not convert column '{col_name}' to dtype '{target_dtype}'. Error: {e}")
 
-            else:
-                # Multiple column assignment
-                # Check if results are sequences of the correct length
-                first_valid_result = next((item for item in results if item is not None), None) # Find first non-None result to check structure
-                if first_valid_result is not None and (not isinstance(first_valid_result, Sequence) or len(first_valid_result) != len(columns)):
-                     raise ValueError(f"Calculator {type(calculator).__name__} was expected to return a sequence of {len(columns)} items for columns {columns}, but returned: {first_valid_result}")
+        for calculator, columns, dtypes, mode in self._registrations:
+            calc_name = type(calculator).__name__
+            try:
+                if mode == 'table':
+                    if not isinstance(calculator, BaseTableCalculator):
+                         logger.error(f"Internal Error: Expected BaseTableCalculator, got {calc_name}")
+                         continue
 
-                # Create a temporary DataFrame from the results (Series of sequences)
-                # Handle potential Nones returned by the calculator for rows where calculation doesn't apply
-                # We need to ensure these Nones become rows of Nones/NaNs in the temp DataFrame
-                def _safe_tolist(item):
-                    if isinstance(item, Sequence) and len(item) == len(columns):
-                        return list(item)
-                    # If item is None or not a sequence of correct length, return list of Nones
-                    return [None] * len(columns)
+                    logger.info(f"Processing table-wise calculation with {calc_name}...")
+                    result_df = calculator.calculate_table(self.transactions)
 
-                try:
-                    temp_df = pd.DataFrame(
-                        results.apply(_safe_tolist).tolist(), # Convert Series of sequences to list of lists
-                        index=self.transactions.index,
-                        columns=columns
+                    if not isinstance(result_df, pd.DataFrame):
+                        raise TypeError(f"Table calculator {calc_name} must return a pandas DataFrame, got {type(result_df)}.")
+
+                    # Check index alignment (optional but recommended)
+                    if not is_initially_empty and not self.transactions.index.equals(result_df.index):
+                         logger.warning(f"Index of DataFrame returned by table calculator {calc_name} does not match the original index. Results might be misaligned.")
+                         # Attempt to reindex - might introduce NaNs if indices differ significantly
+                         result_df = result_df.reindex(self.transactions.index)
+                    elif is_initially_empty and not result_df.empty and not self.transactions.index.equals(result_df.index):
+                         logger.warning(f"Index of DataFrame returned by table calculator {calc_name} does not match original empty index. Reindexing.")
+                         result_df = result_df.reindex(self.transactions.index)
+
+                    for col in result_df.columns:
+                        if col in self.transactions.columns:
+                            logger.debug(f"Table calculator {calc_name} overwriting column '{col}'.")
+                        if is_initially_empty and col not in self.transactions.columns:
+                             self.transactions[col] = pd.Series(result_df[col], index=self.transactions.index)
+                        else:
+                             self.transactions[col] = result_df[col]
+
+                    logger.info(f"Finished table-wise calculation with {calc_name}.")
+
+                elif mode == 'row':
+                    if not isinstance(calculator, BaseRowCalculator):
+                         logger.error(f"Internal Error: Expected BaseRowCalculator, got {calc_name}")
+                         continue
+
+                    if is_initially_empty:
+                         logger.debug(f"Skipping row-wise calculation processing for {calc_name} as DataFrame was initially empty.")
+                         continue
+
+                    logger.info(f"Processing row-wise calculation for columns {columns} with {calc_name}...")
+                    results = self.transactions.apply(
+                        lambda row: calculator.calculate_row(row), axis=1
                     )
-                except Exception as e:
-                     # Provide more context on failure
-                     print(f"Error creating temporary DataFrame for columns {columns} from calculator {type(calculator).__name__}. Check calculator's return values.")
-                     raise e
 
+                    if len(columns) == 1:
+                        col_name = columns[0]
+                        target_dtype = dtypes[0] if dtypes else None
+                        self.transactions[col_name] = results
+                        if target_dtype is not None:
+                            try:
+                                # Use convert_dtypes for better nullable type inference if possible
+                                if pd.__version__ >= "1.0.0":
+                                     self.transactions[col_name] = self.transactions[col_name].convert_dtypes()
+                                # Then attempt specific cast if provided
+                                self.transactions[col_name] = self.transactions[col_name].astype(target_dtype)
+                            except Exception as e:
+                                logger.warning(f"Warning: Could not convert column '{col_name}' to dtype '{target_dtype}'. Error: {e}")
 
-                # Assign columns from the temporary DataFrame
-                for i, col_name in enumerate(columns):
-                    target_dtype = dtypes[i]
-                    self.transactions[col_name] = temp_df[col_name]
-                    if target_dtype is not None:
+                    else:
+                        first_valid_result = next((item for item in results if item is not None), None)
+                        if first_valid_result is not None and (not isinstance(first_valid_result, Sequence) or len(first_valid_result) != len(columns)):
+                             raise ValueError(f"Row-wise calculator {calc_name} was expected to return a sequence of {len(columns)} items for columns {columns}, but returned: {first_valid_result}")
+
+                        # Helper to handle potential Nones or incorrect structures from apply
+                        def _safe_tolist(item):
+                            if isinstance(item, Sequence) and len(item) == len(columns):
+                                return list(item)
+                            # Return list of Nones matching expected columns if structure is wrong
+                            return [None] * len(columns)
+
                         try:
-                            # Use convert_dtypes for better nullable type handling or astype
-                            # self.transactions[col_name] = self.transactions[col_name].convert_dtypes() # Option 1
-                            self.transactions[col_name] = self.transactions[col_name].astype(target_dtype) # Option 2 (original)
-                        except Exception as e:
-                            print(f"Warning: Could not convert column '{col_name}' to dtype '{target_dtype}'. Error: {e}")
+                            processed_results = results.apply(_safe_tolist)
+                            if not processed_results.empty and isinstance(processed_results.iloc[0], list):
+                                temp_df = pd.DataFrame(
+                                    processed_results.tolist(),
+                                    index=self.transactions.index,
+                                    columns=columns
+                                )
+                            else:
+                                temp_df = pd.DataFrame(None, index=self.transactions.index, columns=columns)
 
+                        except Exception as e:
+                             logger.error(f"Error creating temporary DataFrame for columns {columns} from row-wise calculator {calc_name}. Check calculator's return values consistency. Error: {e}")
+                             raise e
+
+                        for i, col_name in enumerate(columns):
+                            target_dtype = dtypes[i] if dtypes else None
+                            self.transactions[col_name] = temp_df[col_name]
+                            if target_dtype is not None:
+                                try:
+                                     if pd.__version__ >= "1.0.0":
+                                         self.transactions[col_name] = self.transactions[col_name].convert_dtypes()
+                                     self.transactions[col_name] = self.transactions[col_name].astype(target_dtype)
+                                except Exception as e:
+                                    logger.warning(f"Warning: Could not convert column '{col_name}' to dtype '{target_dtype}'. Error: {e}")
+                    logger.info(f"Finished row-wise calculation for columns {columns}.")
+
+            except Exception as e:
+                 logger.error(f"Error during {mode}-wise calculation with {calc_name}: {e}", exc_info=True)
+                 raise e

@@ -3,19 +3,21 @@
 This project aims to manage various types of share transactions of a specific portfolio (buys, sells, dividends, etc.) in a generic way through a `TransactionManager`. The manager allows registering multiple calculators (classes that implement the `BaseCalculator` interface), which calculate and populate specific columns for each transaction in the `DataFrame`.
 
 ## Table of Contents
-1. [Overview](#overview)
-2. [File Structure](#file-structure)
-3. [Installation](#installation)
-4. [Usage](#usage)
-5. [Main Classes](#main-classes)
-   - [TransactionManager](#transactionmanager)
-   - [BaseCalculator](#basecalculator)
-   - [FIFOCalculator](#fifocalculator)
-   - [DividendCalculator](#dividendcalculator)
-   - [AveragePriceCalculator](#averagepricecalculator)
-6. [Example](#example)
-7. [Contributing](#contributing)
-8. [License](#license)
+- [PyPortfolio](#pyportfolio)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [File Structure](#file-structure)
+  - [Installation](#installation)
+  - [Usage](#usage)
+  - [Main Classes](#main-classes)
+    - [TransactionManager](#transactionmanager)
+    - [BaseCalculator](#basecalculator)
+    - [FIFOCalculator](#fifocalculator)
+    - [DividendCalculator](#dividendcalculator)
+    - [AveragePriceCalculator](#averagepricecalculator)
+  - [Example](#example)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 ---
 

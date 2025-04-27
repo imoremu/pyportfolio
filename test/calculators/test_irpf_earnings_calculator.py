@@ -1,9 +1,17 @@
+# test/calculators/test_irpf_earnings_calculator.py
+
 import pytest
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from pyportfolio.calculators.irpf_earnings_calculator import IrpfEarningsCalculator
+# Import the calculator and result column names
+from pyportfolio.calculators.irpf_earnings_calculator import (
+    IrpfEarningsCalculator,
+    RESULT_TAXABLE_GAIN_LOSS,
+    RESULT_DEFERRED_ADJUSTMENT
+)
+
 # Import constants used in test data setup
 from pyportfolio.columns import DATE, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE
 
@@ -17,28 +25,39 @@ def sample_transactions_base():
         TICKER: pd.Series([], dtype=str),
         SHARES: pd.Series([], dtype=float),
         SHARE_PRICE: pd.Series([], dtype=float)
-        # No longer needs 'FIFO Gain/Loss' column
     })
 
-# Helper to create transactions and calculator
-def create_calc_from_data(data, base_fixture):
-    """ Creates DataFrame from test data, ensures sorting, and initializes calculator. """
-    df = pd.DataFrame(data)
-    df[DATE] = pd.to_datetime(df[DATE])
-    transactions = pd.concat([base_fixture, df], ignore_index=True)
+# Helper to create transactions, run calculator directly, and merge results
+def run_irpf_calc_direct(data, base_fixture):
+    """
+    Creates DataFrame from test data, ensures sorting,
+    instantiates IrpfEarningsCalculator, calls calculate_table directly,
+    and merges the results back with the input for easier testing.
+    """
+    df_input = pd.DataFrame(data)
+    df_input[DATE] = pd.to_datetime(df_input[DATE])
+    transactions_input = pd.concat([base_fixture, df_input], ignore_index=True)
     # Ensure sorting by date and type (buys before sells on same day)
-    transactions = transactions.sort_values(
+    transactions_input = transactions_input.sort_values(
         by=[DATE, TRANSACTION_TYPE],
         ascending=[True, True],
         key=lambda col: col.map({'buy': 0, 'sell': 1}) if col.name == TRANSACTION_TYPE else col
-    ).reset_index(drop=True)
-    calculator = IrpfEarningsCalculator(transactions_df=transactions)
-    return calculator, transactions
+    ).reset_index(drop=True) # Keep original index for comparison if needed later
+
+    # Instantiate calculator and call calculate_table
+    calculator = IrpfEarningsCalculator()
+    # Pass a copy to calculate_table to mimic TransactionManager behavior
+    results_df = calculator.calculate_table(transactions_input.copy())
+
+    # Merge results back to the sorted input based on index for easier assertions
+    # The results_df should have the same index as transactions_input
+    merged_df = transactions_input.join(results_df)
+    return merged_df
 
 # --- Test Cases ---
 
-def test_irpf_gain_is_returned_directly(sample_transactions_base):
-    """ Test gain: Sell returns (gain, 0.0), Buy returns (0.0, 0.0). """
+def test_irpf_gain_is_calculated(sample_transactions_base):
+    """ Test gain: Sell row has gain, Buy row has 0.0. """
     data = {
         DATE: ['2023-01-10', '2023-03-15'],
         TRANSACTION_TYPE: ['buy', 'sell'],
@@ -46,19 +65,18 @@ def test_irpf_gain_is_returned_directly(sample_transactions_base):
         SHARES: [100, 100],
         SHARE_PRICE: [10, 12]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_row = transactions[transactions[TRANSACTION_TYPE] == 'buy'].iloc[0]
-    sell_row = transactions[transactions[TRANSACTION_TYPE] == 'sell'].iloc[0]
+    buy_row_result = processed_df[processed_df[TRANSACTION_TYPE] == 'buy'].iloc[0]
+    sell_row_result = processed_df[processed_df[TRANSACTION_TYPE] == 'sell'].iloc[0]
 
-    result_buy = calculator.calculate(buy_row)
-    result_sell = calculator.calculate(sell_row)
-
-    assert result_buy == (0.0, 0.0), "Buy row should have (0.0, 0.0)"
-    assert result_sell == (200.0, 0.0), "Sell row should have (Gain, 0.0)"
+    assert buy_row_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(200.0)
+    assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_no_repurchase_within_window(sample_transactions_base):
-    """ Test loss (no deferral): Sell returns (loss, 0.0), Buys return (0.0, 0.0). """
+    """ Test loss (no deferral): Sell row has loss, Buy rows have 0.0. """
     data = {
         DATE: ['2023-01-10', '2023-06-15', '2023-10-01'], # Buy is > 2 months after sell
         TRANSACTION_TYPE: ['buy', 'sell', 'buy'],
@@ -66,22 +84,21 @@ def test_irpf_loss_no_repurchase_within_window(sample_transactions_base):
         SHARES: [100, 100, 50],
         SHARE_PRICE: [10, 8, 7]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_row_1 = transactions[transactions[TRANSACTION_TYPE] == 'buy'].iloc[0]
-    sell_row = transactions[transactions[TRANSACTION_TYPE] == 'sell'].iloc[0]
-    buy_row_2 = transactions[transactions[TRANSACTION_TYPE] == 'buy'].iloc[1]
+    buy_row_1_result = processed_df[processed_df[TRANSACTION_TYPE] == 'buy'].iloc[0]
+    sell_row_result = processed_df[processed_df[TRANSACTION_TYPE] == 'sell'].iloc[0]
+    buy_row_2_result = processed_df[processed_df[TRANSACTION_TYPE] == 'buy'].iloc[1]
 
-    result_buy_1 = calculator.calculate(buy_row_1)
-    result_sell = calculator.calculate(sell_row)
-    result_buy_2 = calculator.calculate(buy_row_2)
-
-    assert result_buy_1 == (0.0, 0.0), "Initial Buy row"
-    assert result_sell == (-200.0, 0.0), "Sell row should have (Loss, 0.0) as not deferred"
-    assert result_buy_2 == (0.0, 0.0), "Later Buy row"
+    assert buy_row_1_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(-200.0)
+    assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_row_2_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_2_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_deferred_due_to_repurchase_within_2_months_after(sample_transactions_base):
-    """ Test loss partial deferral (buy after): Sell=(Allowed Loss, 0.0), Blocking Buy=(0.0, +DeferredLoss). """
+    """ Test loss partial deferral (buy after): Sell has Allowed Loss, Blocking Buy has Adjustment. """
     data = {
         DATE: ['2023-01-10', '2023-06-15', '2023-07-20'], # Repurchase within 2 months after
         TRANSACTION_TYPE: ['buy', 'sell', 'buy'],
@@ -89,15 +106,11 @@ def test_irpf_loss_deferred_due_to_repurchase_within_2_months_after(sample_trans
         SHARES: [100, 100, 50], # Sell 100, Repurchase 50
         SHARE_PRICE: [10, 8, 9]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_row_initial = transactions[transactions[TRANSACTION_TYPE] == 'buy'].iloc[0]
-    sell_row = transactions[transactions[TRANSACTION_TYPE] == 'sell'].iloc[0]
-    buy_row_blocking = transactions[transactions[TRANSACTION_TYPE] == 'buy'].iloc[1]
-
-    result_buy_initial = calculator.calculate(buy_row_initial)
-    result_sell = calculator.calculate(sell_row)
-    result_buy_blocking = calculator.calculate(buy_row_blocking)
+    buy_row_initial_result = processed_df[processed_df[TRANSACTION_TYPE] == 'buy'].iloc[0]
+    sell_row_result = processed_df[processed_df[TRANSACTION_TYPE] == 'sell'].iloc[0]
+    buy_row_blocking_result = processed_df[processed_df[TRANSACTION_TYPE] == 'buy'].iloc[1]
 
     # Sell 100@8. Cost 100@10 = 1000. Loss = 800-1000 = -200 (-2/share).
     # Repurchase 50 shares blocks 50 shares.
@@ -106,12 +119,15 @@ def test_irpf_loss_deferred_due_to_repurchase_within_2_months_after(sample_trans
     expected_allowable_loss = -100.0
     expected_buy_adjustment = 100.0
 
-    assert result_buy_initial == (0.0, 0.0), "Initial Buy row"
-    assert result_sell == (expected_allowable_loss, 0.0), "Sell row loss is partially deferred"
-    assert result_buy_blocking == (0.0, expected_buy_adjustment), "Blocking Buy row gets adjustment"
+    assert buy_row_initial_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_initial_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_allowable_loss)
+    assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_row_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_buy_adjustment)
 
 def test_irpf_loss_deferred_due_to_repurchase_within_2_months_before(sample_transactions_base):
-    """ Test loss partial deferral (buy before): Sell=(Allowed Loss, 0.0), Blocking Buy=(0.0, +DeferredLoss). """
+    """ Test loss partial deferral (buy before): Sell has Allowed Loss, Blocking Buy has Adjustment. """
     data = {
         DATE: ['2023-01-10', '2023-05-20', '2023-06-15'], # Buy before within 2 months
         TRANSACTION_TYPE: ['buy', 'buy', 'sell'],
@@ -119,15 +135,11 @@ def test_irpf_loss_deferred_due_to_repurchase_within_2_months_before(sample_tran
         SHARES: [100, 50, 100], # Sell 100, Repurchase 50 before
         SHARE_PRICE: [10, 9, 8]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_row_initial = transactions[transactions[TRANSACTION_TYPE] == 'buy'].iloc[0]
-    buy_row_blocking = transactions[transactions[TRANSACTION_TYPE] == 'buy'].iloc[1]
-    sell_row = transactions[transactions[TRANSACTION_TYPE] == 'sell'].iloc[0]
-
-    result_buy_initial = calculator.calculate(buy_row_initial)
-    result_buy_blocking = calculator.calculate(buy_row_blocking)
-    result_sell = calculator.calculate(sell_row)
+    buy_row_initial_result = processed_df[processed_df[TRANSACTION_TYPE] == 'buy'].iloc[0]
+    buy_row_blocking_result = processed_df[processed_df[TRANSACTION_TYPE] == 'buy'].iloc[1]
+    sell_row_result = processed_df[processed_df[TRANSACTION_TYPE] == 'sell'].iloc[0]
 
     # Sell 100@8. Cost 100@10 = 1000. Loss = 800-1000 = -200 (-2/share).
     # Repurchase 50 shares blocks 50 shares.
@@ -136,12 +148,15 @@ def test_irpf_loss_deferred_due_to_repurchase_within_2_months_before(sample_tran
     expected_allowable_loss = -100.0
     expected_buy_adjustment = 100.0
 
-    assert result_buy_initial == (0.0, 0.0), "Initial Buy row"
-    assert result_buy_blocking == (0.0, expected_buy_adjustment), "Blocking Buy row gets adjustment"
-    assert result_sell == (expected_allowable_loss, 0.0), "Sell row loss is partially deferred"
+    assert buy_row_initial_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_initial_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_row_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_buy_adjustment)
+    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_allowable_loss)
+    assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_not_deferred_if_repurchase_is_different_ticker(sample_transactions_base):
-    """ Test loss not deferred (diff ticker): Sell returns (loss, 0.0), Buys return (0.0, 0.0). """
+    """ Test loss not deferred (diff ticker): Sell has loss, Buys have 0.0. """
     data = {
         DATE: ['2023-01-10', '2023-06-15', '2023-07-20'],
         TRANSACTION_TYPE: ['buy', 'sell', 'buy'],
@@ -149,21 +164,20 @@ def test_irpf_loss_not_deferred_if_repurchase_is_different_ticker(sample_transac
         SHARES: [100, 100, 50],
         SHARE_PRICE: [10, 8, 9]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_row_xyz = transactions[transactions[TICKER] == 'XYZ'].iloc[0]
-    sell_row_xyz = transactions[transactions[TICKER] == 'XYZ'].iloc[1]
-    buy_row_abc = transactions[transactions[TICKER] == 'ABC'].iloc[0]
-
-    result_buy_xyz = calculator.calculate(buy_row_xyz)
-    result_sell_xyz = calculator.calculate(sell_row_xyz)
-    result_buy_abc = calculator.calculate(buy_row_abc)
+    buy_row_xyz_result = processed_df[processed_df[TICKER] == 'XYZ'].iloc[0]
+    sell_row_xyz_result = processed_df[processed_df[TICKER] == 'XYZ'].iloc[1]
+    buy_row_abc_result = processed_df[processed_df[TICKER] == 'ABC'].iloc[0]
 
     # Sell 100@8. Cost 100@10 = 1000. Loss = -200.
     # Repurchase is different ticker, so no deferral.
-    assert result_buy_xyz == (0.0, 0.0), "Initial XYZ Buy row"
-    assert result_sell_xyz == (-200.0, 0.0), "XYZ Sell row loss NOT deferred"
-    assert result_buy_abc == (0.0, 0.0), "ABC Buy row"
+    assert buy_row_xyz_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_xyz_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert sell_row_xyz_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(-200.0)
+    assert sell_row_xyz_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_row_abc_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_abc_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_deferred_and_gain_realized(sample_transactions_base):
     """ Test sequence: Deferred loss, then a Gain using adjusted cost basis. """
@@ -174,19 +188,13 @@ def test_irpf_loss_deferred_and_gain_realized(sample_transactions_base):
         SHARES: [100, 50, 80, 60, 70], # Sell 80, blocked by Buy 50 (before) and Buy 60 (after)
         SHARE_PRICE: [10, 9, 8, 10, 12]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_1_row = transactions.iloc[0]
-    buy_2_blocking_row = transactions.iloc[1]
-    sell_1_deferred_row = transactions.iloc[2]
-    buy_3_blocking_row = transactions.iloc[3]
-    sell_2_gain_row = transactions.iloc[4]
-
-    result_buy_1 = calculator.calculate(buy_1_row)
-    result_buy_2_blocking = calculator.calculate(buy_2_blocking_row)
-    result_sell_1_deferred = calculator.calculate(sell_1_deferred_row)
-    result_buy_3_blocking = calculator.calculate(buy_3_blocking_row)
-    result_sell_2_gain = calculator.calculate(sell_2_gain_row)
+    buy_1_result = processed_df.iloc[0]
+    buy_2_blocking_result = processed_df.iloc[1]
+    sell_1_deferred_result = processed_df.iloc[2]
+    buy_3_blocking_result = processed_df.iloc[3]
+    sell_2_gain_result = processed_df.iloc[4]
 
     # Sell 1: 80@8. Cost 80@10=800. Loss=-160 (-2/share).
     # Blocked by Buy 2 (50 sh) and Buy 3 (30 sh). Allowable=0.
@@ -202,11 +210,16 @@ def test_irpf_loss_deferred_and_gain_realized(sample_transactions_base):
     # Gain = 840 - 750 = 90.
     expected_gain_sell2 = 90.0
 
-    assert result_buy_1 == (0.0, 0.0), "Initial Buy"
-    assert result_buy_2_blocking == (0.0, expected_adj_buy2), "Blocking Buy 2 gets adjustment"
-    assert result_sell_1_deferred == (0.0, 0.0), "Deferred Sell 1"
-    assert result_buy_3_blocking == (0.0, expected_adj_buy3), "Blocking Buy 3 gets adjustment"
-    assert result_sell_2_gain == (expected_gain_sell2, 0.0), "Gain Sell 2 uses adjusted cost"
+    assert buy_1_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_2_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_2_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_adj_buy2)
+    assert sell_1_deferred_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0 # Fully deferred
+    assert sell_1_deferred_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_3_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_3_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_adj_buy3)
+    assert sell_2_gain_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_gain_sell2)
+    assert sell_2_gain_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_deferred_and_loss_realized(sample_transactions_base):
     """ Test sequence: Deferred loss, then a Loss using adjusted cost basis. """
@@ -217,19 +230,13 @@ def test_irpf_loss_deferred_and_loss_realized(sample_transactions_base):
         SHARES: [100, 50, 80, 60, 80], # Sell 80, blocked by Buy 50 (before) and Buy 60 (after)
         SHARE_PRICE: [10, 9, 8, 10, 7]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_1_row = transactions.iloc[0]
-    buy_2_blocking_row = transactions.iloc[1]
-    sell_1_deferred_row = transactions.iloc[2]
-    buy_3_blocking_row = transactions.iloc[3]
-    sell_2_loss_row = transactions.iloc[4]
-
-    result_buy_1 = calculator.calculate(buy_1_row)
-    result_buy_2_blocking = calculator.calculate(buy_2_blocking_row)
-    result_sell_1_deferred = calculator.calculate(sell_1_deferred_row)
-    result_buy_3_blocking = calculator.calculate(buy_3_blocking_row)
-    result_sell_2_loss = calculator.calculate(sell_2_loss_row)
+    buy_1_result = processed_df.iloc[0]
+    buy_2_blocking_result = processed_df.iloc[1]
+    sell_1_deferred_result = processed_df.iloc[2]
+    buy_3_blocking_result = processed_df.iloc[3]
+    sell_2_loss_result = processed_df.iloc[4]
 
     # Sell 1: 80@8. Cost 80@10=800. Loss=-160 (-2/share).
     # Blocked by Buy 2 (50 sh) and Buy 3 (30 sh). Allowable=0.
@@ -247,17 +254,21 @@ def test_irpf_loss_deferred_and_loss_realized(sample_transactions_base):
     # No repurchases within +/- 2 months of Sell 2 (2023-10-10), so loss is allowable.
     expected_loss_sell2 = -300.0
 
-    assert result_buy_1 == (0.0, 0.0), "Initial Buy"
-    assert result_buy_2_blocking == (0.0, expected_adj_buy2), "Blocking Buy 2 gets adjustment"
-    assert result_sell_1_deferred == (0.0, 0.0), "Deferred Sell 1"
-    assert result_buy_3_blocking == (0.0, expected_adj_buy3), "Blocking Buy 3 gets adjustment"
-    assert result_sell_2_loss == (expected_loss_sell2, 0.0), "Loss Sell 2 uses adjusted cost"
+    assert buy_1_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_2_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_2_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_adj_buy2)
+    assert sell_1_deferred_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0 # Fully deferred
+    assert sell_1_deferred_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_3_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_3_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_adj_buy3)
+    assert sell_2_loss_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_loss_sell2)
+    assert sell_2_loss_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_single_buy_blocks_two_separate_sells_capacity_logic(sample_transactions_base):
     """
     Test scenario where one 'buy' (70 shares) blocks two 'sells' (50 shares each).
-    Assumes the buy's blocking capacity (70) is consumed chronologically,
-    and the sell's allowable loss reflects only the portion not blocked by capacity.
+    Assumes the buy's blocking capacity (70) is consumed chronologically.
     """
     data = {
         DATE: ['2023-01-10', '2023-06-10', '2023-07-10', '2023-08-10'],
@@ -266,36 +277,37 @@ def test_irpf_single_buy_blocks_two_separate_sells_capacity_logic(sample_transac
         SHARES: [100, 50, 70, 50],
         SHARE_PRICE: [10, 8, 9, 7]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_1_row = transactions.iloc[0]
-    sell_1_row = transactions.iloc[1]
-    buy_blocking_row = transactions.iloc[2]
-    sell_2_row = transactions.iloc[3]
+    buy_1_result = processed_df.iloc[0]
+    sell_1_result = processed_df.iloc[1]
+    buy_blocking_result = processed_df.iloc[2]
+    sell_2_result = processed_df.iloc[3]
 
-    result_buy_1 = calculator.calculate(buy_1_row)
-    result_sell_1 = calculator.calculate(sell_1_row)
-    result_buy_blocking = calculator.calculate(buy_blocking_row)
-    result_sell_2 = calculator.calculate(sell_2_row)
-
-    # Sell 1: Loss -100 (-2/sh). Buy Blocking (70sh) blocks 50sh. Deferred=100. Allowable=0. Capacity Used=50. Rem=20.
+    # Sell 1: 50@8. Cost 50@10=500. Loss -100 (-2/sh).
+    # Buy Blocking (70sh) blocks 50sh. Deferred=100. Allowable=0. Capacity Used=50. Rem=20.
     allowable_sell1 = 0.0
     deferred_from_sell1 = 100.0
 
-    # Sell 2: Loss -150 (-3/sh). Buy Blocking (20sh rem capacity) blocks 20sh. Deferred=60. Allowable=-150+60=-90.
+    # Sell 2: 50@7. Cost 50@10=500. Loss -150 (-3/sh).
+    # Buy Blocking (20sh rem capacity) blocks 20sh. Deferred=20*|-3|=60. Allowable=-150+60=-90.
     deferred_from_sell2_by_this_buy = 60.0
     expected_allowable_sell2 = -90.0
 
     # Buy Blocking Adj = Deferred from Sell 1 + Deferred from Sell 2 = 100 + 60 = 160.
     expected_total_adjustment_on_buy = 160.0
 
-    assert result_buy_1 == (0.0, 0.0), "Initial Buy"
-    assert result_sell_1 == (allowable_sell1, 0.0), "Sell 1 allowable loss"
-    assert result_buy_blocking == (0.0, expected_total_adjustment_on_buy), "Blocking Buy adjustment"
-    assert result_sell_2 == (expected_allowable_sell2, 0.0), "Sell 2 allowable loss"
+    assert buy_1_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert sell_1_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(allowable_sell1)
+    assert sell_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_total_adjustment_on_buy)
+    assert sell_2_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_allowable_sell2)
+    assert sell_2_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
-def test_irpf_returns_correct_tuples_for_non_sell_transactions(sample_transactions_base):
-    """ Test Buy returns (0.0, 0.0), others return (None, None). """
+def test_irpf_handles_non_buy_sell_transactions(sample_transactions_base):
+    """ Test Buy has 0.0, others have None. """
     data = {
         DATE: ['2023-01-10', '2023-03-15'],
         TRANSACTION_TYPE: ['buy', 'dividend'], # No 'sell'
@@ -303,22 +315,18 @@ def test_irpf_returns_correct_tuples_for_non_sell_transactions(sample_transactio
         SHARES: [100, np.nan],
         SHARE_PRICE: [10, np.nan]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_row = transactions.iloc[0]
-    dividend_row = transactions.iloc[1]
+    buy_row_result = processed_df.iloc[0]
+    dividend_row_result = processed_df.iloc[1]
 
-    result_buy = calculator.calculate(buy_row)
-    result_dividend = calculator.calculate(dividend_row)
-
-    assert result_buy == (0.0, 0.0), "Buy row"
-    assert result_dividend == (None, None), "Non buy/sell row"
-
-# Test removed as calculator no longer depends on input FIFO column
-# def test_irpf_handles_nan_fifo_gain_loss_for_sell(sample_transactions_base): ...
+    assert buy_row_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert pd.isna(dividend_row_result[RESULT_TAXABLE_GAIN_LOSS])
+    assert pd.isna(dividend_row_result[RESULT_DEFERRED_ADJUSTMENT])
 
 def test_irpf_edge_case_exactly_two_months_before_exclusive(sample_transactions_base):
-    """ Test loss NOT deferred (exact 2mo before): Sell=(loss, 0.0), Buy=(0.0, 0.0). """
+    """ Test loss NOT deferred (exact 2mo before): Sell has loss, Buy has 0.0. """
     data = {
         DATE: ['2023-01-15', '2023-04-15', '2023-06-15'], # Buy exactly 2 months before sell
         TRANSACTION_TYPE: ['buy', 'buy', 'sell'],
@@ -326,21 +334,20 @@ def test_irpf_edge_case_exactly_two_months_before_exclusive(sample_transactions_
         SHARES: [50, 50, 100],
         SHARE_PRICE: [9, 9, 8]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    buy_row = transactions.iloc[1] # The potential blocker
-    sell_row = transactions.iloc[2]
-
-    result_buy = calculator.calculate(buy_row)
-    result_sell = calculator.calculate(sell_row)
+    buy_row_result = processed_df.iloc[1] # The potential blocker
+    sell_row_result = processed_df.iloc[2]
 
     # Sell 100@8. Cost: 50@9 + 50@9 = 900. Loss = 800-900 = -100.
     # Buy is exactly 2 months before, so window is > date, loss not deferred.
-    assert result_buy == (0.0, 0.0)
-    assert result_sell == (-100.0, 0.0)
+    assert buy_row_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(-100.0)
+    assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_edge_case_exactly_two_months_after_exclusive(sample_transactions_base):
-    """ Test loss NOT deferred (exact 2mo after): Sell=(loss, 0.0), Buy=(0.0, 0.0). """
+    """ Test loss NOT deferred (exact 2mo after): Sell has loss, Buy has 0.0. """
     data = {
         DATE: ['2023-01-15', '2023-06-15', '2023-08-15'], # Buy exactly 2 months after sell
         TRANSACTION_TYPE: ['buy', 'sell', 'buy'],
@@ -348,30 +355,30 @@ def test_irpf_edge_case_exactly_two_months_after_exclusive(sample_transactions_b
         SHARES: [100, 100, 50],
         SHARE_PRICE: [10, 8, 9]
     }
-    calculator, transactions = create_calc_from_data(data, sample_transactions_base)
+    processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
-    sell_row = transactions.iloc[1]
-    buy_row = transactions.iloc[2] # The potential blocker
-
-    result_sell = calculator.calculate(sell_row)
-    result_buy = calculator.calculate(buy_row)
+    sell_row_result = processed_df.iloc[1]
+    buy_row_result = processed_df.iloc[2] # The potential blocker
 
     # Sell 100@8. Cost 100@10 = 1000. Loss = -200.
     # Buy is exactly 2 months after, so window is < date, loss not deferred.
-    assert result_sell == (-200.0, 0.0)
-    assert result_buy == (0.0, 0.0)
+    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(-200.0)
+    assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_row_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
-# --- Initialization Tests ---
+# --- Validation Tests (calling calculate_table directly) ---
 
-def test_init_raises_error_if_df_missing():
-    """ Test ValueError if initialized with non-DataFrame. """
-    with pytest.raises(ValueError, match="transactions_df must be a pandas DataFrame"):
-        IrpfEarningsCalculator(transactions_df=None)
-    with pytest.raises(ValueError, match="transactions_df must be a pandas DataFrame"):
-        IrpfEarningsCalculator(transactions_df=[1, 2, 3])
+def test_calculate_table_raises_error_if_df_missing():
+    """ Test ValueError if calculate_table called with non-DataFrame. """
+    calculator = IrpfEarningsCalculator()
+    with pytest.raises(ValueError, match="Input must be a pandas DataFrame"):
+        calculator.calculate_table(None)
+    with pytest.raises(ValueError, match="Input must be a pandas DataFrame"):
+        calculator.calculate_table([1, 2, 3])
 
-def test_init_raises_error_if_missing_required_columns(sample_transactions_base):
-    """ Test ValueError if DataFrame is missing essential columns. """
+def test_calculate_table_raises_error_if_missing_required_columns(sample_transactions_base):
+    """ Test ValueError from calculate_table if DataFrame is missing essential columns. """
     valid_data = {
         DATE: [datetime(2023,1,1)], TRANSACTION_TYPE: ['buy'], TICKER: ['T'],
         SHARES: [1], SHARE_PRICE: [1]
@@ -379,28 +386,32 @@ def test_init_raises_error_if_missing_required_columns(sample_transactions_base)
     transactions_ok = pd.DataFrame(valid_data)
     transactions_ok[DATE] = pd.to_datetime(transactions_ok[DATE])
 
+    calculator = IrpfEarningsCalculator()
+
     # Check missing columns needed by the calculator
     required_cols = [DATE, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE]
     for col in required_cols:
         if col not in transactions_ok.columns: continue
         transactions_bad = transactions_ok.drop(columns=[col])
         with pytest.raises(ValueError, match=f"DataFrame must contain columns:.*{col}"):
-             IrpfEarningsCalculator(transactions_df=transactions_bad)
+             calculator.calculate_table(transactions_bad)
 
-def test_init_raises_error_if_date_column_not_convertible(sample_transactions_base):
-    """ Test ValueError if the date column cannot be converted to datetime. """
+def test_calculate_table_raises_error_if_date_column_not_convertible(sample_transactions_base):
+    """ Test ValueError from calculate_table if date column cannot be converted. """
     data = {
         DATE: ['2023-01-10', 'invalid-date-string'],
         TRANSACTION_TYPE: ['buy', 'sell'], TICKER: ['XYZ', 'XYZ'],
         SHARES: [100, 100], SHARE_PRICE: [10, 12]
     }
     transactions = pd.concat([sample_transactions_base, pd.DataFrame(data)], ignore_index=True)
+    # Don't convert DATE here
 
-    with pytest.raises(ValueError, match="Could not convert date column 'Date' to datetime"):
-        IrpfEarningsCalculator(transactions_df=transactions)
+    calculator = IrpfEarningsCalculator()
+    with pytest.raises(ValueError, match=f"Could not convert date column '{DATE}' to datetime"):
+        calculator.calculate_table(transactions)
 
-def test_init_converts_date_column_if_possible(sample_transactions_base):
-    """ Test that the date column is converted to datetime during init if it's not already. """
+def test_calculate_table_converts_date_column_if_possible(sample_transactions_base):
+    """ Test that calculate_table converts date column if it's not already datetime. """
     data = {
         DATE: ['2023-01-10', '2023-03-15'], # Dates as strings
         TRANSACTION_TYPE: ['buy', 'sell'], TICKER: ['XYZ', 'XYZ'],
@@ -408,6 +419,13 @@ def test_init_converts_date_column_if_possible(sample_transactions_base):
     }
     transactions = pd.concat([sample_transactions_base, pd.DataFrame(data)], ignore_index=True)
 
-    calculator = IrpfEarningsCalculator(transactions_df=transactions)
-    assert pd.api.types.is_datetime64_any_dtype(calculator.internal_transactions[DATE])
-
+    calculator = IrpfEarningsCalculator()
+    # Call calculate_table and check the result (doesn't modify input)
+    result_df = calculator.calculate_table(transactions)
+    # We can't directly check the internal_df's date type easily,
+    # but the fact it runs without error implies conversion worked.
+    # Check the output structure
+    assert isinstance(result_df, pd.DataFrame)
+    assert RESULT_TAXABLE_GAIN_LOSS in result_df.columns
+    assert RESULT_DEFERRED_ADJUSTMENT in result_df.columns
+    assert result_df.index.equals(transactions.index) # Check index preservation

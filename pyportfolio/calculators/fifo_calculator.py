@@ -9,10 +9,10 @@ from pyportfolio.columns import (
     TYPE_BUY,
     TYPE_SELL,
 )
-from .base_calculator import BaseCalculator
+from .base_calculator import BaseRowCalculator
 
 
-class FIFOCalculator(BaseCalculator):
+class FIFOCalculator(BaseRowCalculator):
     """
     Calculator that applies FIFO logic to 'sell' transactions,
     strictly limited to shares bought (and still available) prior to this
@@ -31,7 +31,7 @@ class FIFOCalculator(BaseCalculator):
             self.transactions[TRANSACTION_TYPE].str.lower() == TYPE_BUY, SHARES
         ]
 
-    def calculate(self, row: pd.Series) -> Any:
+    def calculate_row(self, row: pd.Series) -> Any:
         """
         If this row is a 'sell' transaction, ensure the shares to sell
         do not exceed the total available among previous buys. Then

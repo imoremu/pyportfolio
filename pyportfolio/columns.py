@@ -1,14 +1,14 @@
 # columns.py
 
-TRANSACTION_TYPE = "Transaction Type"
-SHARES = "Quantity"
-SHARE_PRICE = "Price"
-AVAILABLE_SHARES = "Available Shares"
-DATE = "Date"
-TICKER = "Ticker"
+TRANSACTION_TYPE = "Tipo Transacción"
+SHARES = "Participaciones"
+SHARE_PRICE = "Precio Participación"
+AVAILABLE_SHARES = "Participaciones disponibles"
+DATE = "Fecha"
+TICKER = "Producto"
 
 TYPE_BUY = "buy"
 TYPE_SELL = "sell"
 TYPE_DIVIDEND = "dividend"
 
-FIFO = "FIFO Gain/Loss"
+FIFO = "FIFO Beneficio / Pérdida"

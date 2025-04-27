@@ -15,7 +15,7 @@ def test_fifo_simple():
     ])
     calc = FIFOCalculator(transactions)
 
-    result = calc.calculate(transactions.iloc[2])  # Pass the third row as a pd.Series
+    result = calc.calculate_row(transactions.iloc[2])  # Pass the third row as a pd.Series
     assert result == pytest.approx(400.0)
 
 
@@ -30,7 +30,7 @@ def test_fifo_partial_consumption_across_buys():
     ])
     calc = FIFOCalculator(transactions)
 
-    result = calc.calculate(transactions.iloc[2])
+    result = calc.calculate_row(transactions.iloc[2])
     assert result == pytest.approx(340.0)
 
 
@@ -46,7 +46,7 @@ def test_fifo_sell_exactly_all_shares():
     ])
     calc = FIFOCalculator(transactions)
 
-    result = calc.calculate(transactions.iloc[2])
+    result = calc.calculate_row(transactions.iloc[2])
     assert result == pytest.approx(240.0)
 
     # Verify that available shares are reduced to 0
@@ -67,7 +67,7 @@ def test_fifo_sell_more_than_available():
     calc = FIFOCalculator(transactions)
 
     with pytest.raises(ValueError) as exc_info:
-        calc.calculate(transactions.iloc[2])
+        calc.calculate_row(transactions.iloc[2])
 
     expected_msg = "Cannot sell 10 shares; only 5.0 are available in previous buys."
     assert expected_msg in str(exc_info.value)
@@ -87,7 +87,7 @@ def test_fifo_no_sell_transaction():
     ])
     calc = FIFOCalculator(transactions)
 
-    result = calc.calculate(transactions.iloc[0])
+    result = calc.calculate_row(transactions.iloc[0])
     assert result is None
 
 
@@ -105,13 +105,13 @@ def test_fifo_multiple_sells_in_sequence():
     calc = FIFOCalculator(transactions)
 
     # First sell
-    result_sell1 = calc.calculate(transactions.iloc[2])
+    result_sell1 = calc.calculate_row(transactions.iloc[2])
     assert result_sell1 == pytest.approx(240.0)
     assert transactions.at[0, AVAILABLE_SHARES] == 2
     assert transactions.at[1, AVAILABLE_SHARES] == 5
 
     # Second sell
-    result_sell2 = calc.calculate(transactions.iloc[3])
+    result_sell2 = calc.calculate_row(transactions.iloc[3])
     assert result_sell2 == pytest.approx(220.0)
     assert transactions.at[0, AVAILABLE_SHARES] == 0
     assert transactions.at[1, AVAILABLE_SHARES] == 2
@@ -131,6 +131,6 @@ def test_fifo_sell_ignores_future_buys_and_raises_exception():
     calc = FIFOCalculator(transactions)
 
     with pytest.raises(ValueError) as exc_info:
-        calc.calculate(transactions.iloc[1])
+        calc.calculate_row(transactions.iloc[1])
 
     assert "Cannot sell 6 shares; only 5.0 are available in previous buys." in str(exc_info.value)

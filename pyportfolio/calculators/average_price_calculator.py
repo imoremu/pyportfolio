@@ -1,9 +1,9 @@
 import pandas as pd
 from typing import Any
-from .base_calculator import BaseCalculator
+from .base_calculator import BaseRowCalculator
 
 
-class AveragePriceCalculator(BaseCalculator):
+class AveragePriceCalculator(BaseRowCalculator):
     """
     Calculator that determines the average share price after each buy.
     If the row is not a 'buy' transaction, it returns None.
@@ -14,7 +14,7 @@ class AveragePriceCalculator(BaseCalculator):
         self.current_total_shares = 0.0
         self.current_total_cost = 0.0
 
-    def calculate(self, row: pd.Series) -> Any:
+    def calculate_row(self, row: pd.Series) -> Any:
         """
         If the transaction is 'buy', calculate the new average price.
         Otherwise, return None.

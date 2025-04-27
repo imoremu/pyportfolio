@@ -10,6 +10,6 @@ def test_dividend_calculator():
     ])
     calc = DividendCalculator(transactions)
 
-    assert calc.calculate(transactions.iloc[0]) == 100
+    assert calc.calculate_row(transactions.iloc[0]) == 100
     # The second transaction is a 'buy', so the dividend calculator should return None
-    assert calc.calculate(transactions.iloc[1]) is None
+    assert calc.calculate_row(transactions.iloc[1]) is None
