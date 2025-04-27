@@ -35,8 +35,7 @@ class TransactionManager:
         """
         if not isinstance(transactions, pd.DataFrame):
             raise TypeError("transactions must be a pandas DataFrame")
-        self.transactions = transactions
-        # Store: (calculator, columns (for row-wise), dtypes (for row-wise), mode ('row' or 'table'))
+        self.transactions = transactions        
         self._registrations: List[Tuple[Union[BaseRowCalculator, BaseTableCalculator], Optional[List[str]], Optional[List[Optional[str]]], str]] = []
 
     def _validate_row_params(self, column, dtype) -> Tuple[List[str], List[Optional[str]]]:
@@ -151,6 +150,8 @@ class TransactionManager:
                          logger.warning(f"Index of DataFrame returned by table calculator {calc_name} does not match original empty index. Reindexing.")
                          result_df = result_df.reindex(self.transactions.index)
 
+                    logger.debug(f"Result DF data {calc_name}: {result_df.to_string()}")
+                    
                     for col in result_df.columns:
                         if col in self.transactions.columns:
                             logger.debug(f"Table calculator {calc_name} overwriting column '{col}'.")
@@ -160,6 +161,7 @@ class TransactionManager:
                              self.transactions[col] = result_df[col]
 
                     logger.info(f"Finished table-wise calculation with {calc_name}.")
+                    logger.debug(f"Result Transactions data {calc_name}: {self.transactions.to_string()}")
 
                 elif mode == 'row':
                     if not isinstance(calculator, BaseRowCalculator):
