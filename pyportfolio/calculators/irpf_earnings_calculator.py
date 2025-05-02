@@ -13,7 +13,7 @@ from pyportfolio.columns import (
     SHARES,
     TRANSACTION_TYPE,
     TICKER,
-    DATE,
+    DATETIME,
     COMISION,
     TYPE_BUY, # Use TYPE_BUY constant
     TYPE_SELL # Use TYPE_SELL constant
@@ -58,15 +58,15 @@ class IrpfEarningsCalculator(BaseTableCalculator):
         """ Performs validation checks on the input DataFrame. """
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame")
-        required_columns = [DATE, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION]
+        required_columns = [DATETIME, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION]
         missing_cols = [col for col in required_columns if col not in df.columns]
         if missing_cols:
             raise ValueError(f"DataFrame must contain columns: {required_columns}. Missing: {missing_cols}")
-        if not pd.api.types.is_datetime64_any_dtype(df[DATE]):
+        if not pd.api.types.is_datetime64_any_dtype(df[DATETIME]):
             try:
-                pd.to_datetime(df[DATE])
+                pd.to_datetime(df[DATETIME], format='mixed', dayfirst=True)
             except Exception as e:
-                raise ValueError(f"Could not convert date column '{DATE}' to datetime: {e}")
+                raise ValueError(f"Could not convert {df[DATETIME]} from date column '{DATETIME}' to datetime: {e}")
 
     def calculate_table(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -75,7 +75,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
 
         Args:
             df: The transaction DataFrame provided by the TransactionManager.
-                Expected columns: DATE, TICKER, TRANSACTION_TYPE, SHARES, SHARE_PRICE, COMISION.
+                Expected columns: DATETIME, TICKER, TRANSACTION_TYPE, SHARES, SHARE_PRICE, COMISION.
                 Expects SHARES to be positive for buys and negative for sells.
                 Expects COMISION to be positive for both buys (cost) and sells (expense).
 
@@ -95,15 +95,19 @@ class IrpfEarningsCalculator(BaseTableCalculator):
 
         internal_df = df.copy(deep=True)
 
-        if not pd.api.types.is_datetime64_any_dtype(internal_df[DATE]):
-             internal_df[DATE] = pd.to_datetime(internal_df[DATE])
+        if not pd.api.types.is_datetime64_any_dtype(internal_df[DATETIME]):
+            try:
+                internal_df[DATETIME] = pd.to_datetime(internal_df[DATETIME], format='mixed', dayfirst=True)
+            except Exception as e:
+                raise ValueError(f"Could not convert {internal_df[DATETIME]} from date column '{DATETIME}' to datetime: {e}")       
+            
 
         internal_df[COMISION] = pd.to_numeric(internal_df[COMISION], errors='coerce').fillna(0.0)
         internal_df[SHARES] = pd.to_numeric(internal_df[SHARES], errors='coerce').fillna(0.0) # Ensure SHARES is numeric
 
         # --- Sort and reset index, keeping old index in a column ---
         internal_df = internal_df.sort_values(
-            by=[DATE, TRANSACTION_TYPE], ascending=[True, True]
+            by=[DATETIME, TRANSACTION_TYPE], ascending=[True, True]
         ).reset_index() # Keep old index
 
         # Rename the old index column
@@ -158,7 +162,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                     elif shares_value < -1e-9 and transaction_type != TYPE_SELL:
                          logger.warning(f"Row {index} has negative SHARES ({shares_value}) but Transaction Type is not '{TYPE_SELL}' (it's '{transaction_type}'). Processing as sell based on shares.")
 
-                    logger.debug(f"Processing SELL row {index}: {row.get(DATE)} / Ticker: {row.get(TICKER)})")
+                    logger.debug(f"Processing SELL row {index}: {row.get(DATETIME)} / Ticker: {row.get(TICKER)})")
                     result_tuple = self._process_sell_and_update_buys(row, index, internal_df)
                     if result_tuple is not None:
                         internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = result_tuple[0]
@@ -171,7 +175,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                     elif shares_value > 1e-9 and transaction_type != TYPE_BUY:
                          logger.warning(f"Row {index} has positive SHARES ({shares_value}) but Transaction Type is not '{TYPE_BUY}' (it's '{transaction_type}'). Processing as buy based on shares.")
 
-                    logger.debug(f"Processing BUY row {index}: {row.get(DATE)} / Ticker: {row.get(TICKER)})")
+                    logger.debug(f"Processing BUY row {index}: {row.get(DATETIME)} / Ticker: {row.get(TICKER)})")
                     internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = 0.0
                     # Placeholder, will be overwritten later for buys
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = 0.0
@@ -223,7 +227,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
          ticker = sell_row.get(TICKER)
          original_shares_value = sell_row.get(SHARES)
          sell_price = sell_row.get(SHARE_PRICE)
-         sell_date = sell_row.get(DATE)
+         sell_date = sell_row.get(DATETIME)
          commission_sell = sell_row.get(COMISION, 0.0)
 
          # Use absolute value for quantity calculations
@@ -248,7 +252,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
 
          # Check overselling using the absolute quantity
          if shares_to_sell > total_available_before + 1e-9:
-             logger.error(f"Overselling detected for sell {sell_index}. Available: {total_available_before:.4f}, Selling Qty: {shares_to_sell:.4f}")
+             logger.error(f"Overselling detected for sell {sell_index} (Ticker: {ticker}, Date: {sell_date}). Available: {total_available_before:.4f}, Selling Qty: {shares_to_sell:.4f}")
              # Consider raising an error or returning specific error code
              return (None, None) # Or raise ValueError
 
@@ -291,7 +295,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                  return (adjusted_gain_loss, 0.0)
              else:
                  # repurchases DataFrame still has 0..N-1 index
-                 sorted_repurchases = repurchases.sort_values(by=DATE)
+                 sorted_repurchases = repurchases.sort_values(by=DATETIME)
                  actual_shares_blocked_for_this_sell = 0.0
                  # Start blocking capacity check with absolute quantity
                  remaining_shares_from_sell_to_block = shares_to_sell
@@ -299,7 +303,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
 
                  # Iterate through the 0..N-1 indices of the blockers
                  for internal_blocker_index in sorted_repurchases.index:
-                     logger.debug(f"--- Sell {sell_index}: Checking potential blocker index {internal_blocker_index} Date: {internal_df.at[internal_blocker_index, DATE]} ---")
+                     logger.debug(f"--- Sell {sell_index}: Checking potential blocker index {internal_blocker_index} Date: {internal_df.at[internal_blocker_index, DATETIME]} ---")
 
                      blocker_total_qty = internal_df.at[internal_blocker_index, SHARES] # Original positive quantity
                      blocker_remaining_capacity = internal_df.at[internal_blocker_index, _INTERNAL_BLOCKING_CAPACITY_REMAINING]
@@ -362,10 +366,10 @@ class IrpfEarningsCalculator(BaseTableCalculator):
         two_months_after = current_date + DateOffset(months=2)
 
         # Ensure date column in lookup_df is datetime
-        if not pd.api.types.is_datetime64_any_dtype(lookup_df[DATE]):
-             lookup_df_dates = pd.to_datetime(lookup_df[DATE])
+        if not pd.api.types.is_datetime64_any_dtype(lookup_df[DATETIME]):
+             lookup_df_dates = pd.to_datetime(lookup_df[DATETIME], format='mixed', dayfirst=True)
         else:
-             lookup_df_dates = lookup_df[DATE]
+             lookup_df_dates = lookup_df[DATETIME]
 
         ticker_match = lookup_df[TICKER] == ticker
         # Explicitly check for TYPE_BUY and positive shares for repurchases

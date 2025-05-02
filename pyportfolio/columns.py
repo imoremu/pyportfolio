@@ -1,10 +1,8 @@
-# columns.py
-
 TRANSACTION_TYPE = "Tipo Transacción"
 SHARES = "Participaciones"
 SHARE_PRICE = "Precio Participación"
 AVAILABLE_SHARES = "Participaciones disponibles"
-DATE = "Fecha"
+DATETIME = "Fecha/Hora"
 TICKER = "Producto"
 COMISION = "Comisión"
 

@@ -7,7 +7,7 @@ from datetime import datetime
 
 from pyportfolio.calculators.fifo_calculator import FIFOCalculator, RESULT_FIFO_GAIN_LOSS
 from pyportfolio.columns import (
-    DATE,
+    DATETIME,
     TICKER,
     TRANSACTION_TYPE,
     SHARES,
@@ -23,7 +23,7 @@ from pyportfolio.columns import (
 def sample_transactions_fifo_base():
     """ Provides an empty DataFrame with the expected structure including COMISION. """
     return pd.DataFrame({
-        DATE: pd.to_datetime([]),
+        DATETIME: pd.to_datetime([]),
         TICKER: pd.Series([], dtype=str),
         TRANSACTION_TYPE: pd.Series([], dtype=str),
         SHARES: pd.Series([], dtype=float),
@@ -38,7 +38,7 @@ def run_fifo_calc_direct(data, base_fixture):
     and joins the results to the input for easier testing.
     """
     df_input = pd.DataFrame(data)
-    df_input[DATE] = pd.to_datetime(df_input[DATE])
+    df_input[DATETIME] = pd.to_datetime(df_input[DATETIME], format='mixed', dayfirst=True)
     df_input[SHARES] = df_input[SHARES].astype(float)
     df_input[SHARE_PRICE] = df_input[SHARE_PRICE].astype(float)
     if COMISION not in df_input.columns:
@@ -48,7 +48,7 @@ def run_fifo_calc_direct(data, base_fixture):
     transactions_input = pd.concat([base_fixture, df_input], ignore_index=True)
 
     transactions_input = transactions_input.sort_values(
-        by=[TICKER, DATE, TRANSACTION_TYPE], ascending=[True, True, True]
+        by=[TICKER, DATETIME, TRANSACTION_TYPE], ascending=[True, True, True]
     ).reset_index(drop=True)
 
     calculator = FIFOCalculator()
@@ -62,7 +62,7 @@ def run_fifo_calc_direct(data, base_fixture):
 def test_fifo_simple(sample_transactions_fifo_base):
     """ Simple sell consumes from the first FIFO buy, including commissions. """
     data = {
-        DATE: ['2023-01-10', '2023-02-15', '2023-03-20'],
+        DATETIME: ['2023-01-10', '2023-02-15', '2023-03-20'],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL],
         SHARES: [10, 5, -8],
@@ -86,7 +86,7 @@ def test_fifo_simple(sample_transactions_fifo_base):
 def test_fifo_partial_consumption_across_buys(sample_transactions_fifo_base):
     """ Sell consumes shares from multiple buys, including commissions. """
     data = {
-        DATE: ['2023-01-10', '2023-02-15', '2023-03-20'],
+        DATETIME: ['2023-01-10', '2023-02-15', '2023-03-20'],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL],
         SHARES: [5, 5, -8],
@@ -108,7 +108,7 @@ def test_fifo_partial_consumption_across_buys(sample_transactions_fifo_base):
 def test_fifo_sell_exactly_all_shares(sample_transactions_fifo_base):
     """ Sell consumes exactly all purchased shares, including commissions. """
     data = {
-        DATE: ['2023-01-10', '2023-02-15', '2023-03-20'],
+        DATETIME: ['2023-01-10', '2023-02-15', '2023-03-20'],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL],
         SHARES: [4, 6, -10],
@@ -130,7 +130,7 @@ def test_fifo_sell_exactly_all_shares(sample_transactions_fifo_base):
 def test_fifo_sell_more_than_available_raises_error(sample_transactions_fifo_base):
     """ Attempting to sell more shares than available should raise ValueError. """
     data = {
-        DATE: ['2023-01-10', '2023-02-15', '2023-03-20'],
+        DATETIME: ['2023-01-10', '2023-02-15', '2023-03-20'],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL],
         SHARES: [3, 2, -10],
@@ -138,7 +138,7 @@ def test_fifo_sell_more_than_available_raises_error(sample_transactions_fifo_bas
         COMISION: [1, 1, 1]
     }
     df_input = pd.DataFrame(data)
-    df_input[DATE] = pd.to_datetime(df_input[DATE])
+    df_input[DATETIME] = pd.to_datetime(df_input[DATETIME], format='mixed', dayfirst=True)
     df_input[SHARES] = df_input[SHARES].astype(float)
     df_input[SHARE_PRICE] = df_input[SHARE_PRICE].astype(float)
     df_input[COMISION] = df_input[COMISION].astype(float)
@@ -155,7 +155,7 @@ def test_fifo_sell_more_than_available_raises_error(sample_transactions_fifo_bas
 def test_fifo_no_sell_transaction(sample_transactions_fifo_base):
     """ If there are no sells, the result column should be NA. """
     data = {
-        DATE: ['2023-01-10', '2023-02-15'],
+        DATETIME: ['2023-01-10', '2023-02-15'],
         TICKER: ['XYZ', 'XYZ'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY],
         SHARES: [10, 5],
@@ -170,7 +170,7 @@ def test_fifo_no_sell_transaction(sample_transactions_fifo_base):
 def test_fifo_multiple_sells_in_sequence(sample_transactions_fifo_base):
     """ Multiple sells processed correctly in order, including commissions. """
     data = {
-        DATE: ['2023-01-10', '2023-02-15', '2023-03-20', '2023-04-25'],
+        DATETIME: ['2023-01-10', '2023-02-15', '2023-03-20', '2023-04-25'],
         TICKER: ['XYZ', 'XYZ', 'XYZ', 'XYZ'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL, TYPE_SELL],
         SHARES: [10, 5, -8, -5],
@@ -200,7 +200,7 @@ def test_fifo_multiple_sells_in_sequence(sample_transactions_fifo_base):
 def test_fifo_sell_ignores_future_buys_and_raises_error(sample_transactions_fifo_base):
     """ Sell cannot use future buys; raises error if not enough previous shares. """
     data = {
-        DATE: ['2023-01-10', '2023-03-20', '2023-04-15'],
+        DATETIME: ['2023-01-10', '2023-03-20', '2023-04-15'],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL, TYPE_BUY],
         SHARES: [5, -6, 10],
@@ -208,7 +208,7 @@ def test_fifo_sell_ignores_future_buys_and_raises_error(sample_transactions_fifo
         COMISION: [2, 3, 4]
     }
     df_input = pd.DataFrame(data)
-    df_input[DATE] = pd.to_datetime(df_input[DATE])
+    df_input[DATETIME] = pd.to_datetime(df_input[DATETIME], format='mixed', dayfirst=True)
     df_input[SHARES] = df_input[SHARES].astype(float)
     df_input[SHARE_PRICE] = df_input[SHARE_PRICE].astype(float)
     df_input[COMISION] = df_input[COMISION].astype(float)
@@ -225,7 +225,7 @@ def test_fifo_sell_ignores_future_buys_and_raises_error(sample_transactions_fifo
 def test_fifo_multiple_tickers(sample_transactions_fifo_base):
     """ Ensures that FIFO calculation is isolated per ticker, including commissions. """
     data_corrected = {
-        DATE: ['2023-01-10', '2023-01-15', '2023-02-10', '2023-02-20', '2023-03-10', '2023-03-15'],
+        DATETIME: ['2023-01-10', '2023-01-15', '2023-02-10', '2023-02-20', '2023-03-10', '2023-03-15'],
         TICKER: ['AAA', 'BBB', 'AAA', 'BBB', 'AAA', 'BBB'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_BUY, TYPE_SELL, TYPE_SELL, TYPE_SELL],
         SHARES: [10, 20, 5, -15, -12, -5],
@@ -263,7 +263,7 @@ def test_fifo_multiple_tickers(sample_transactions_fifo_base):
 def test_fifo_handles_other_transaction_types(sample_transactions_fifo_base):
     """ Other transaction types should have NA result. """
     data = {
-        DATE: ['2023-01-10', '2023-02-15', '2023-03-20'],
+        DATETIME: ['2023-01-10', '2023-02-15', '2023-03-20'],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_DIVIDEND, TYPE_SELL],
         SHARES: [10, np.nan, -5],
@@ -289,7 +289,7 @@ def test_fifo_handles_other_transaction_types(sample_transactions_fifo_base):
 def test_fifo_sell_with_zero_or_positive_shares_is_ignored(sample_transactions_fifo_base):
     """ Sell rows with zero or positive shares should be ignored (result NA). """
     data = {
-        DATE: ['2023-01-10', '2023-02-15', '2023-03-20', '2023-04-10'],
+        DATETIME: ['2023-01-10', '2023-02-15', '2023-03-20', '2023-04-10'],
         TICKER: ['XYZ', 'XYZ', 'XYZ', 'XYZ'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL, TYPE_SELL, TYPE_SELL],
         SHARES: [10, 0, 5, -2],

@@ -14,7 +14,7 @@ from pyportfolio.calculators.irpf_earnings_calculator import (
 
 # Import constants used in test data setup
 from pyportfolio.columns import (
-    DATE, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION, # Added COMISION
+    DATETIME, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION, # Added COMISION
     TYPE_BUY, TYPE_SELL
 )
 
@@ -23,7 +23,7 @@ from pyportfolio.columns import (
 def sample_transactions_base():
     """ Provides an empty DataFrame with the expected structure including COMISION. """
     return pd.DataFrame({
-        DATE: pd.to_datetime([]),
+        DATETIME: pd.to_datetime([]),
         TRANSACTION_TYPE: pd.Series([], dtype=str),
         TICKER: pd.Series([], dtype=str),
         SHARES: pd.Series([], dtype=float),
@@ -34,7 +34,7 @@ def sample_transactions_base():
 # Helper function to create DataFrames
 def create_df(data):
     df = pd.DataFrame(data)
-    df[DATE] = pd.to_datetime(df[DATE])
+    df[DATETIME] = pd.to_datetime(df[DATETIME], format='mixed', dayfirst=True)
     if COMISION not in df.columns:
         df[COMISION] = 0.0
     else:
@@ -53,7 +53,7 @@ def run_irpf_calc_direct(data, base_fixture):
     and merges the results back with the input for easier testing.
     """
     df_input = pd.DataFrame(data)
-    df_input[DATE] = pd.to_datetime(df_input[DATE])
+    df_input[DATETIME] = pd.to_datetime(df_input[DATETIME], format='mixed', dayfirst=True)
     df_input[SHARES] = df_input[SHARES].astype(float) # Ensure SHARES is float
     if COMISION not in df_input.columns:             # Ensure COMISION exists
         df_input[COMISION] = 0.0
@@ -63,7 +63,7 @@ def run_irpf_calc_direct(data, base_fixture):
 
     # Ensure sorting by date and type (buys before sells on same day)
     transactions_input = transactions_input.sort_values(
-        by=[DATE, TRANSACTION_TYPE],
+        by=[DATETIME, TRANSACTION_TYPE],
         ascending=[True, True],
         # Use key for sorting TYPE_BUY before TYPE_SELL if dates are equal
         key=lambda col: col.map({TYPE_BUY: 0, TYPE_SELL: 1}) if col.name == TRANSACTION_TYPE else col
@@ -83,7 +83,7 @@ def run_irpf_calc_direct(data, base_fixture):
 def test_irpf_gain_is_calculated(sample_transactions_base):
     """ Test gain: Sell row has gain, Buy row has 0.0. """
     data = {
-        DATE: ['2023-01-10', '2023-03-15'],
+        DATETIME: ['2023-01-10', '2023-03-15'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL],
         TICKER: ['XYZ', 'XYZ'],
         SHARES: [100.0, -100.0], # Sell shares negative
@@ -108,7 +108,7 @@ def test_irpf_gain_is_calculated(sample_transactions_base):
 def test_irpf_loss_no_repurchase_within_window(sample_transactions_base):
     """ Test loss (no deferral): Sell row has loss, Buy rows have 0.0. """
     data = {
-        DATE: ['2023-01-10', '2023-06-15', '2023-10-01'], # Buy is > 2 months after sell
+        DATETIME: ['2023-01-10', '2023-06-15', '2023-10-01'], # Buy is > 2 months after sell
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL, TYPE_BUY],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         SHARES: [100.0, -100.0, 50.0], # Sell shares negative
@@ -137,7 +137,7 @@ def test_irpf_loss_no_repurchase_within_window(sample_transactions_base):
 def test_irpf_loss_deferred_due_to_repurchase_within_2_months_after(sample_transactions_base):
     """ Test loss partial deferral (buy after): Sell has Allowed Loss, Blocking Buy has Adjustment. """
     data = {
-        DATE: ['2023-01-10', '2023-06-15', '2023-07-20'], # Repurchase within 2 months after
+        DATETIME: ['2023-01-10', '2023-06-15', '2023-07-20'], # Repurchase within 2 months after
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL, TYPE_BUY],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         SHARES: [100.0, -100.0, 50.0], # Sell 100, Repurchase 50. Sell shares negative
@@ -168,7 +168,7 @@ def test_irpf_loss_deferred_due_to_repurchase_within_2_months_after(sample_trans
 def test_irpf_loss_deferred_due_to_repurchase_within_2_months_before(sample_transactions_base):
     """ Test loss partial deferral (buy before): Sell has Allowed Loss, Blocking Buy has Adjustment. """
     data = {
-        DATE: ['2023-01-10', '2023-05-20', '2023-06-15'], # Buy before within 2 months
+        DATETIME: ['2023-01-10', '2023-05-20', '2023-06-15'], # Buy before within 2 months
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         SHARES: [100.0, 50.0, -100.0], # Sell 100, Repurchase 50 before. Sell shares negative
@@ -199,7 +199,7 @@ def test_irpf_loss_deferred_due_to_repurchase_within_2_months_before(sample_tran
 def test_irpf_loss_not_deferred_if_repurchase_is_different_ticker(sample_transactions_base):
     """ Test loss not deferred (diff ticker): Sell has loss, Buys have 0.0. """
     data = {
-        DATE: ['2023-01-10', '2023-06-15', '2023-07-20'],
+        DATETIME: ['2023-01-10', '2023-06-15', '2023-07-20'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL, TYPE_BUY],
         TICKER: ['XYZ', 'XYZ', 'ABC'], # Repurchase is 'ABC', sale is 'XYZ'
         SHARES: [100.0, -100.0, 50.0], # Sell shares negative
@@ -226,7 +226,7 @@ def test_irpf_loss_not_deferred_if_repurchase_is_different_ticker(sample_transac
 def test_irpf_loss_deferred_and_gain_realized(sample_transactions_base):
     """ Test sequence: Deferred loss, then a Gain using adjusted cost basis. """
     data = {
-        DATE: ['2023-01-10', '2023-05-20', '2023-06-15', '2023-07-20', '2023-09-10'],
+        DATETIME: ['2023-01-10', '2023-05-20', '2023-06-15', '2023-07-20', '2023-09-10'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL, TYPE_BUY, TYPE_SELL],
         TICKER: ['XYZ', 'XYZ', 'XYZ', 'XYZ', 'XYZ'],
         SHARES: [100.0, 50.0, -80.0, 60.0, -70.0], # Sell shares negative
@@ -274,7 +274,7 @@ def test_irpf_loss_deferred_and_gain_realized(sample_transactions_base):
 def test_irpf_loss_deferred_and_loss_realized(sample_transactions_base):
     """ Test sequence: Deferred loss, then a Loss using adjusted cost basis. """
     data = {
-        DATE: ['2023-01-10', '2023-05-20', '2023-06-15', '2023-07-20', '2023-10-10'],
+        DATETIME: ['2023-01-10', '2023-05-20', '2023-06-15', '2023-07-20', '2023-10-10'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL, TYPE_BUY, TYPE_SELL],
         TICKER: ['XYZ', 'XYZ', 'XYZ', 'XYZ', 'XYZ'],
         SHARES: [100.0, 50.0, -80.0, 60.0, -80.0], # Sell shares negative
@@ -323,7 +323,7 @@ def test_irpf_single_buy_blocks_two_separate_sells_capacity_logic(sample_transac
     Assumes the buy's blocking capacity (70) is consumed chronologically.
     """
     data = {
-        DATE: ['2023-01-10', '2023-06-10', '2023-07-10', '2023-08-10'],
+        DATETIME: ['2023-01-10', '2023-06-10', '2023-07-10', '2023-08-10'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL, TYPE_BUY, TYPE_SELL],
         TICKER: ['XYZ', 'XYZ', 'XYZ', 'XYZ'],
         SHARES: [100.0, -50.0, 70.0, -50.0], # Sell shares negative
@@ -367,7 +367,7 @@ def test_irpf_single_buy_blocks_two_separate_sells_capacity_logic(sample_transac
 def test_irpf_handles_non_buy_sell_transactions(sample_transactions_base):
     """ Test Buy has 0.0, others have None. """
     data = {
-        DATE: ['2023-01-10', '2023-03-15'],
+        DATETIME: ['2023-01-10', '2023-03-15'],
         TRANSACTION_TYPE: [TYPE_BUY, 'dividend'], # No TYPE_SELL
         TICKER: ['XYZ', 'XYZ'],
         SHARES: [100.0, np.nan], # Dividend shares NaN
@@ -387,7 +387,7 @@ def test_irpf_handles_non_buy_sell_transactions(sample_transactions_base):
 def test_irpf_edge_case_exactly_two_months_before_exclusive(sample_transactions_base):
     """ Test loss NOT deferred (exact 2mo before): Sell has loss, Buy has 0.0. """
     data = {
-        DATE: ['2023-01-15', '2023-04-15', '2023-06-15'], # Buy exactly 2 months before sell
+        DATETIME: ['2023-01-15', '2023-04-15', '2023-06-15'], # Buy exactly 2 months before sell
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         SHARES: [50.0, 50.0, -100.0], # Sell shares negative
@@ -417,7 +417,7 @@ def test_irpf_edge_case_exactly_two_months_before_exclusive(sample_transactions_
 def test_irpf_edge_case_exactly_two_months_after_exclusive(sample_transactions_base):
     """ Test loss NOT deferred (exact 2mo after): Sell has loss, Buy has 0.0. """
     data = {
-        DATE: ['2023-01-15', '2023-06-15', '2023-08-15'], # Buy exactly 2 months after sell
+        DATETIME: ['2023-01-15', '2023-06-15', '2023-08-15'], # Buy exactly 2 months after sell
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL, TYPE_BUY],
         TICKER: ['XYZ', 'XYZ', 'XYZ'],
         SHARES: [100.0, -100.0, 50.0], # Sell shares negative
@@ -457,16 +457,16 @@ def test_calculate_table_raises_error_if_missing_required_columns(sample_transac
     """ Test ValueError from calculate_table if DataFrame is missing essential columns. """
     # Add COMISION to valid data and required_cols check
     valid_data = {
-        DATE: [datetime(2023,1,1)], TRANSACTION_TYPE: [TYPE_BUY], TICKER: ['T'],
+        DATETIME: [datetime(2023,1,1)], TRANSACTION_TYPE: [TYPE_BUY], TICKER: ['T'],
         SHARES: [1.0], SHARE_PRICE: [1.0], COMISION: [0.1]
     }
     transactions_ok = pd.DataFrame(valid_data)
-    transactions_ok[DATE] = pd.to_datetime(transactions_ok[DATE])
+    transactions_ok[DATETIME] = pd.to_datetime(transactions_ok[DATETIME], format='mixed', dayfirst=True)
 
     calculator = IrpfEarningsCalculator()
 
     # Check missing columns needed by the calculator
-    required_cols = [DATE, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION] # Added COMISION
+    required_cols = [DATETIME, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION]
     for col in required_cols:
         if col not in transactions_ok.columns: continue
         transactions_bad = transactions_ok.drop(columns=[col])
@@ -476,24 +476,23 @@ def test_calculate_table_raises_error_if_missing_required_columns(sample_transac
 def test_calculate_table_raises_error_if_date_column_not_convertible(sample_transactions_base):
     """ Test ValueError from calculate_table if date column cannot be converted. """
     data = {
-        DATE: ['2023-01-10', 'invalid-date-string'],
+        DATETIME: ['10-01-2023', 'invalid-date-string'],
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL], TICKER: ['XYZ', 'XYZ'],
-        SHARES: [100.0, -100.0], SHARE_PRICE: [10, 12], COMISION: [5.0, 6.0] # Added COMISION
+        SHARES: [100.0, -100.0], SHARE_PRICE: [10, 12], COMISION: [5.0, 6.0]
     }
-    # Need COMISION column for validation check before date conversion check
-    transactions = pd.concat([sample_transactions_base, pd.DataFrame(data)], ignore_index=True)
-    # Don't convert DATE here
+    
+    transactions = pd.concat([sample_transactions_base, pd.DataFrame(data)], ignore_index=True)    
 
     calculator = IrpfEarningsCalculator()
-    with pytest.raises(ValueError, match=f"Could not convert date column '{DATE}' to datetime"):
+    with pytest.raises(ValueError, match=f"Could not convert"):        
         calculator.calculate_table(transactions)
 
 def test_calculate_table_converts_date_column_if_possible(sample_transactions_base):
     """ Test that calculate_table converts date column if it's not already datetime. """
     data = {
-        DATE: ['2023-01-10', '2023-03-15'], # Dates as strings
+        DATETIME: ['10-01-2023', '15-03-2023'], # Dates as strings
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL], TICKER: ['XYZ', 'XYZ'],
-        SHARES: [100.0, -100.0], SHARE_PRICE: [10, 12], COMISION: [5.0, 6.0] # Added COMISION
+        SHARES: [100.0, -100.0], SHARE_PRICE: [10, 12], COMISION: [5.0, 6.0]
     }
     # Add COMISION to base fixture for concat
     base_fixture_with_comision = sample_transactions_base.copy()

@@ -13,7 +13,7 @@ from pyportfolio.columns import (
     SHARES,
     TRANSACTION_TYPE,
     TICKER,
-    DATE,
+    DATETIME,
     COMISION, # Added COMISION
     TYPE_BUY,
     TYPE_SELL,
@@ -49,15 +49,15 @@ class FIFOCalculator(BaseTableCalculator):
         """ Performs validation checks on the input DataFrame. """
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame")
-        required_columns = [DATE, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION]
+        required_columns = [DATETIME, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION]
         missing_cols = [col for col in required_columns if col not in df.columns]
         if missing_cols:
             raise ValueError(f"DataFrame must contain columns: {required_columns}. Missing: {missing_cols}")
-        if not pd.api.types.is_datetime64_any_dtype(df[DATE]):
+        if not pd.api.types.is_datetime64_any_dtype(df[DATETIME]):
             try:
-                pd.to_datetime(df[DATE]) # Check conversion feasibility
+                pd.to_datetime(df[DATETIME], format='mixed', dayfirst=True) # Check conversion feasibility
             except Exception as e:
-                raise ValueError(f"Could not convert date column '{DATE}' to datetime: {e}")        
+                raise ValueError(f"Could not convert date column '{DATETIME}' to datetime: {e}")        
 
     def calculate_table(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -65,7 +65,7 @@ class FIFOCalculator(BaseTableCalculator):
 
         Args:
             df: The transaction DataFrame provided by the TransactionManager.
-                Expected columns: DATE, TICKER, TRANSACTION_TYPE, SHARES, SHARE_PRICE, COMISION.
+                Expected columns: DATETIME, TICKER, TRANSACTION_TYPE, SHARES, SHARE_PRICE, COMISION.
                 Expects SHARES to be positive for buys and negative for sells.
                 Expects COMISION to be positive for both buys (cost) and sells (expense).
 
@@ -79,18 +79,22 @@ class FIFOCalculator(BaseTableCalculator):
 
         internal_df = df.copy(deep=True)
 
-        if not pd.api.types.is_datetime64_any_dtype(internal_df[DATE]):
-             internal_df[DATE] = pd.to_datetime(internal_df[DATE])
+        if not pd.api.types.is_datetime64_any_dtype(internal_df[DATETIME]):
+            try:
+                internal_df[DATETIME] = pd.to_datetime(internal_df[DATETIME], format='mixed',  dayfirst=True)
+            except Exception as e:
+                raise ValueError(f"Could not convert internal date {internal_df[DATETIME]} column '{DATETIME}' to datetime: {e}")     
+             
 
         # Ensure commission is numeric, fill NaN with 0
         internal_df[COMISION] = pd.to_numeric(internal_df[COMISION], errors='coerce').fillna(0.0)
                 
 
         internal_df = internal_df.sort_values(
-            by=[TICKER, DATE, TRANSACTION_TYPE], ascending=[True, True, True]
+            by=[TICKER, DATETIME, TRANSACTION_TYPE], ascending=[True, True, True]
         ).reset_index()
 
-        logging.debug(f"Data: internal_df[[TICKER, DATE, TRANSACTION_TYPE]].to_string()")
+        logging.debug(f"Data: internal_df[[TICKER, DATETIME, TRANSACTION_TYPE]].to_string()")
 
         original_index_name = 'original_index'
         if 'index' in internal_df.columns:
@@ -125,7 +129,7 @@ class FIFOCalculator(BaseTableCalculator):
             ticker = row.get(TICKER)
 
             if transaction_type == TYPE_SELL:
-                logger.debug(f"Processing SELL row {index}: {row.get(DATE)} / Ticker: {ticker}")
+                logger.debug(f"Processing SELL row {index}: {row.get(DATETIME)} / Ticker: {ticker}")
                 original_shares_value = row.get(SHARES)
                 sell_price = row.get(SHARE_PRICE)
                 commission_sell = row.get(COMISION, 0.0) # Default to 0 if missing
@@ -150,9 +154,9 @@ class FIFOCalculator(BaseTableCalculator):
                 total_available_before = previous_buys[_INTERNAL_FIFO_AVAILABLE_SHARES].sum()
 
                 if shares_to_sell > total_available_before + 1e-9:
-                    logger.error(f"Overselling detected for sell at index {index} (Ticker: {ticker}). Available: {total_available_before:.4f}, Selling (abs): {shares_to_sell:.4f}")
+                    logger.error(f"Overselling detected for sell at index {index} (Ticker: {ticker}, Date: {row.get(DATETIME)}) . Available: {total_available_before:.4f}, Selling (abs): {shares_to_sell:.4f}")
                     raise ValueError(
-                        f"Cannot sell {shares_to_sell:.4f} shares of {ticker} at {row.get(DATE)}; "
+                        f"Cannot sell {shares_to_sell:.4f} shares of {ticker} at {row.get(DATETIME)}; "
                         f"only {total_available_before:.4f} are available from previous buys."
                     )
 

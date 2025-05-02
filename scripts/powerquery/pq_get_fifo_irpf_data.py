@@ -14,7 +14,7 @@ from pyportfolio.calculators.irpf_earnings_calculator import (
     RESULT_TAXABLE_GAIN_LOSS,
     RESULT_DEFERRED_ADJUSTMENT
 )
-from pyportfolio.columns import FIFO, DATE, TRANSACTION_TYPE, TICKER # Added TICKER for grouping context
+from pyportfolio.columns import FIFO, DATETIME, TRANSACTION_TYPE, TICKER # Added TICKER for grouping context
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ try:
         logger.info(f"Starting processing, grouping by: {grouping_columns}")
         grouped_data = dataset.groupby(grouping_columns, observed=True, group_keys=False) # group_keys=False avoids adding group keys as index
 
+        logger.info(f"Grupos: {grouped_data.size()}")
         for group_keys, group_df in grouped_data:
             # Ensure group_keys is a tuple for consistent logging
             if not isinstance(group_keys, tuple):
@@ -75,15 +76,15 @@ try:
             try:
                 # --- Calculations for the current group ---
                 # 1. Sort the group data
-                if DATE in group_df.columns and TRANSACTION_TYPE in group_df.columns:
+                if DATETIME in group_df.columns and TRANSACTION_TYPE in group_df.columns:
                     dataset_sorted = group_df.sort_values(
-                        by=[DATE, TRANSACTION_TYPE],
+                        by=[DATETIME, TRANSACTION_TYPE],
                         ascending=[True, True],
                         key=lambda col: col.map({'buy': 0, 'sell': 1}) if col.name == TRANSACTION_TYPE else col
                     ).copy() # Use copy to avoid SettingWithCopyWarning on the slice
                     logger.debug(f"Group {group_id_str}: Sorted by Date and Transaction Type.")
                 else:
-                    logger.warning(f"Group {group_id_str}: Missing '{DATE}' or '{TRANSACTION_TYPE}'. Cannot guarantee order.")
+                    logger.warning(f"Group {group_id_str}: Missing '{DATETIME}' or '{TRANSACTION_TYPE}'. Cannot guarantee order.")
                     dataset_sorted = group_df.copy() # Use copy here as well
 
                 # 2. Initialize TransactionManager for the group
@@ -189,5 +190,4 @@ except Exception as e:
 
 
 # --- Final Assignment ---
-# Assign to the final variable expected by Power Query, ensuring it's defined
-result = final_results_df if final_results_df is not None else pd.DataFrame() # Ensure result is always a DataFrame
+result = final_results_df if final_results_df is not None else pd.DataFrame()
