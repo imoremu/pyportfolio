@@ -155,10 +155,10 @@ manager = TransactionManager(df)
 
 # Register calculators for different columns
 fifo_calc = FIFOCalculator(manager.transactions)
-manager.register_calculation(column="FIFO Gain", calculator=fifo_calc, dtype="float")
+manager.register_calculation(calculator=fifo_calc, dtype="float")
 
 div_calc = DividendCalculator(manager.transactions)
-manager.register_calculation(column="Dividend Received", calculator=div_calc)
+manager.register_calculation(calculator=div_calc, column="Dividend Received")
 
 avg_price_calc = AveragePriceCalculator(manager.transactions)
 manager.register_calculation(column="Average Price", calculator=avg_price_calc, dtype="float")
