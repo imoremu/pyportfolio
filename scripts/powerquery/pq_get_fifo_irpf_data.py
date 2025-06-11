@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 TEST_COLUMN_NAME = 'Test' 
 
 fifo_result_column = FIFO
-dividend_result_column = DIVIDEND_EARNINGS # Use the constant
+dividend_result_column = DIVIDEND_EARNINGS
 irpf_result_columns = [RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT]
 calculated_columns = [fifo_result_column, dividend_result_column] + irpf_result_columns
 fifo_result_dtype = 'Float64'
@@ -103,10 +103,10 @@ try:
                 )
                 logger.debug(f"Group {group_id_str}: Registered FIFOCalculator.")
 
-                dividend_calculator = DividendCalculator(dataset_sorted)
+                dividend_calculator = DividendCalculator()
                 tm.register_calculation(
                     calculator=dividend_calculator,
-                    column=dividend_result_column, # Use the constant
+                    column=dividend_result_column, 
                     dtype=dividend_result_dtype
                 )
                 logger.debug(f"Group {group_id_str}: Registered DividendCalculator.")

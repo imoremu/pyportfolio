@@ -6,9 +6,9 @@ DATETIME = "Fecha/Hora"
 TICKER = "Producto"
 COMISION = "Comisión"
 
-TYPE_BUY = "compra"
-TYPE_SELL = "venta"
-TYPE_DIVIDEND = "dividendo"
+TYPE_BUY = "Compra"
+TYPE_SELL = "Venta"
+TYPE_DIVIDEND = "Dividendos"
 
 FIFO = "FIFO Beneficio / Pérdida"
 DIVIDEND_EARNINGS = "Beneficio Dividendos"
