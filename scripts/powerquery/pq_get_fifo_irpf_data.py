@@ -9,12 +9,13 @@ logging.basicConfig(filename='logfile.log', level=logging.ERROR, # Changed to IN
 # Assuming these are imported correctly from your project structure
 from pyportfolio.transaction_manager import TransactionManager
 from pyportfolio.calculators.fifo_calculator import FIFOCalculator
+from pyportfolio.calculators.dividend_calculator import DividendCalculator
 from pyportfolio.calculators.irpf_earnings_calculator import (
     IrpfEarningsCalculator,
     RESULT_TAXABLE_GAIN_LOSS,
     RESULT_DEFERRED_ADJUSTMENT
 )
-from pyportfolio.columns import FIFO, DATETIME, TRANSACTION_TYPE, TICKER # Added TICKER for grouping context
+from pyportfolio.columns import FIFO, DATETIME, TRANSACTION_TYPE, TICKER, DIVIDEND_EARNINGS # Added DIVIDEND_EARNINGS
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +23,11 @@ logger = logging.getLogger(__name__)
 TEST_COLUMN_NAME = 'Test' 
 
 fifo_result_column = FIFO
+dividend_result_column = DIVIDEND_EARNINGS # Use the constant
 irpf_result_columns = [RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT]
-calculated_columns = [fifo_result_column] + irpf_result_columns
+calculated_columns = [fifo_result_column, dividend_result_column] + irpf_result_columns
 fifo_result_dtype = 'Float64'
+dividend_result_dtype = 'Float64' 
 
 # List to store results from each group processing
 all_results: List[pd.DataFrame] = []
@@ -100,10 +103,18 @@ try:
                 )
                 logger.debug(f"Group {group_id_str}: Registered FIFOCalculator.")
 
+                dividend_calculator = DividendCalculator(dataset_sorted)
+                tm.register_calculation(
+                    calculator=dividend_calculator,
+                    column=dividend_result_column, # Use the constant
+                    dtype=dividend_result_dtype
+                )
+                logger.debug(f"Group {group_id_str}: Registered DividendCalculator.")
+
                 irpf_calculator = IrpfEarningsCalculator()
                 tm.register_calculation(
                     calculator=irpf_calculator
-                )
+                )                
                 logger.debug(f"Group {group_id_str}: Registered IrpfEarningsCalculator.")
 
                 # 4. Process calculations for the group
@@ -129,10 +140,12 @@ try:
                 # Fill calculated columns with NA
                 for col in calculated_columns:
                      error_df[col] = pd.NA
-                     # Try setting dtype for FIFO column if it exists
-                     if col == fifo_result_column and col in error_df.columns:
+                     # Try setting dtype for known result columns if they exist
+                     if col in error_df.columns:
                          try:
-                             error_df[col] = error_df[col].astype(fifo_result_dtype)
+                             if col == fifo_result_column: error_df[col] = error_df[col].astype(fifo_result_dtype)
+                             elif col == dividend_result_column: error_df[col] = error_df[col].astype(dividend_result_dtype)
+                             # IRPF columns are already Float64 by default in the calculator
                          except Exception as dtype_e:
                              logger.warning(f"Could not set dtype for {col} in error df: {dtype_e}")
 
@@ -176,11 +189,12 @@ except Exception as e:
              final_results_df[col] = pd.NA
         # Ensure columns exist before trying to fill NA (they should, based on columns=...)
         elif final_results_df[col].isnull().all():
-             final_results_df[col] = pd.NA
-             # Try setting dtype for FIFO column if it exists
-             if col == fifo_result_column:
+             final_results_df[col] = pd.NA # Ensure it's pd.NA for consistency
+             # Try setting dtype for known result columns if they exist
+             if col in final_results_df.columns:
                  try:
-                     final_results_df[col] = final_results_df[col].astype(fifo_result_dtype)
+                     if col == fifo_result_column: final_results_df[col] = final_results_df[col].astype(fifo_result_dtype)
+                     elif col == dividend_result_column: final_results_df[col] = final_results_df[col].astype(dividend_result_dtype)
                  except Exception as dtype_e:
                      logger.warning(f"Could not set dtype for {col} in final error df: {dtype_e}")
 

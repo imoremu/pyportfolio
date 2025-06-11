@@ -11,3 +11,4 @@ TYPE_SELL = "venta"
 TYPE_DIVIDEND = "dividendo"
 
 FIFO = "FIFO Beneficio / Pérdida"
+DIVIDEND_EARNINGS = "Beneficio Dividendos"

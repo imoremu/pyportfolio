@@ -15,7 +15,7 @@ from pyportfolio.calculators.irpf_earnings_calculator import (
 # Import constants used in test data setup
 from pyportfolio.columns import (
     DATETIME, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION, # Added COMISION
-    TYPE_BUY, TYPE_SELL
+    TYPE_BUY, TYPE_SELL, TYPE_DIVIDEND
 )
 
 # --- Fixtures for common data ---
@@ -368,19 +368,19 @@ def test_irpf_handles_non_buy_sell_transactions(sample_transactions_base):
     """ Test Buy has 0.0, others have None. """
     data = {
         DATETIME: ['2023-01-10', '2023-03-15'],
-        TRANSACTION_TYPE: [TYPE_BUY, 'dividend'], # No TYPE_SELL
+        TRANSACTION_TYPE: [TYPE_BUY, TYPE_DIVIDEND], # No TYPE_SELL
         TICKER: ['XYZ', 'XYZ'],
-        SHARES: [100.0, np.nan], # Dividend shares NaN
-        SHARE_PRICE: [10, np.nan], # Dividend price NaN
-        COMISION: [5.0, 0.0] # Added commissions
+        SHARES: [100.0, 50.0], # Dividend shares 50
+        SHARE_PRICE: [10, 2], # Dividend price 2
+        COMISION: [5.0, 1.0] # Added commissions
     }
     processed_df = run_irpf_calc_direct(data, sample_transactions_base)
 
     buy_row_result = processed_df.iloc[0]
     dividend_row_result = processed_df.iloc[1]
 
-    assert buy_row_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
-    assert buy_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
+    assert buy_row_result[RESULT_TAXABLE_GAIN_LOSS] == 0
+    assert buy_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0
     assert pd.isna(dividend_row_result[RESULT_TAXABLE_GAIN_LOSS])
     assert pd.isna(dividend_row_result[RESULT_DEFERRED_ADJUSTMENT])
 

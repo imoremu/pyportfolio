@@ -155,34 +155,33 @@ class IrpfEarningsCalculator(BaseTableCalculator):
             logger.debug(f"Processing row {index}:. Type: {transaction_type}, Shares: {shares_value}")
 
             try:
-                # Process sells based on negative shares OR transaction type 'sell'
-                if shares_value < -1e-9 or transaction_type == TYPE_SELL:
-                    if shares_value >= -1e-9 and transaction_type == TYPE_SELL:
-                         logger.warning(f"Row {index} has Transaction Type '{TYPE_SELL}' but non-negative SHARES ({shares_value}). Processing as sell based on type.")
-                    elif shares_value < -1e-9 and transaction_type != TYPE_SELL:
-                         logger.warning(f"Row {index} has negative SHARES ({shares_value}) but Transaction Type is not '{TYPE_SELL}' (it's '{transaction_type}'). Processing as sell based on shares.")
-
-                    logger.debug(f"Processing SELL row {index}: {row.get(DATETIME)} / Ticker: {row.get(TICKER)})")
+                # Process sells based on transaction type 'sell'
+                # Prioritize explicit transaction types
+                if transaction_type == TYPE_SELL:
+                    logger.debug(f"Processing SELL row {index} (type '{TYPE_SELL}'): {row.get(DATETIME)} / Ticker: {row.get(TICKER)})")
+                    # _process_sell_and_update_buys handles share value validation (e.g., non-negative shares for a sell)
                     result_tuple = self._process_sell_and_update_buys(row, index, internal_df)
                     if result_tuple is not None:
                         internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = result_tuple[0]
                         internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = result_tuple[1] # Should be 0.0 for sells
+                    else: # Indicates an issue within _process_sell_and_update_buys (e.g. invalid sell data)
+                        internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = None
+                        internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
 
-                # Process buys based on positive shares OR transaction type 'buy'
-                elif shares_value > 1e-9 or transaction_type == TYPE_BUY:
-                    if shares_value <= 1e-9 and transaction_type == TYPE_BUY:
-                         logger.warning(f"Row {index} has Transaction Type '{TYPE_BUY}' but non-positive SHARES ({shares_value}). Skipping cost basis init for this row.")
-                    elif shares_value > 1e-9 and transaction_type != TYPE_BUY:
-                         logger.warning(f"Row {index} has positive SHARES ({shares_value}) but Transaction Type is not '{TYPE_BUY}' (it's '{transaction_type}'). Processing as buy based on shares.")
-
-                    logger.debug(f"Processing BUY row {index}: {row.get(DATETIME)} / Ticker: {row.get(TICKER)})")
+                # Process buys based transaction type 'buy'
+                elif transaction_type == TYPE_BUY:
+                    logger.debug(f"Processing BUY row {index} (type '{TYPE_BUY}'): {row.get(DATETIME)} / Ticker: {row.get(TICKER)})")
+                    if shares_value <= 1e-9:
+                         logger.warning(f"Row {index} has Transaction Type '{TYPE_BUY}' but non-positive SHARES ({shares_value}). IRPF results set to 0.0, but check data integrity for cost basis calculations.")
+                    # For IRPF capital gains, a buy itself doesn't generate taxable gain/loss immediately.
                     internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = 0.0
-                    # Placeholder, will be overwritten later for buys
+                    # RESULT_DEFERRED_ADJUSTMENT for buy rows is populated at the end from _INTERNAL_DEFERRED_ADJUSTMENT_STATE
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = 0.0
 
                 else:
-                    # Handle other transaction types (e.g., dividend) or zero shares
-                    logger.debug(f"Ignoring row {index} with type '{transaction_type}' and shares {shares_value}.")
+                    # Handles transaction types that are not explicitly TYPE_SELL or TYPE_BUY (e.g., 'dividend')
+                    # Also handles rows with ambiguous shares if type is not BUY/SELL.
+                    logger.debug(f"Ignoring row {index} for IRPF gain/loss calculation as transaction type '{transaction_type}' is not '{TYPE_SELL}' or '{TYPE_BUY}'. Shares: {shares_value}. Results set to None.")
                     internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = None
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
 
@@ -383,4 +382,3 @@ class IrpfEarningsCalculator(BaseTableCalculator):
             ticker_match & is_buy & is_positive_shares & after_window_start & before_window_end
         ]
         return repurchases
-

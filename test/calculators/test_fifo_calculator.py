@@ -312,3 +312,73 @@ def test_fifo_sell_with_zero_or_positive_shares_is_ignored(sample_transactions_f
     # Gain = 258 - 202 = 56
     expected_gain = 56.0
     assert sell_valid[RESULT_FIFO_GAIN_LOSS] == pytest.approx(expected_gain)
+
+
+def test_fifo_simple(sample_transactions_fifo_base):
+    """ Simple sell consumes from the first FIFO buy, including commissions. """
+    data = {
+        DATETIME: ['2023-01-10', '2023-02-15', '2023-03-20'],
+        TICKER: ['XYZ', 'XYZ', 'XYZ'],
+        TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL],
+        SHARES: [10, 5, -8],
+        SHARE_PRICE: [100, 120, 150],
+        COMISION: [5, 2, 3]
+    }
+    processed_df = run_fifo_calc_direct(data, sample_transactions_fifo_base)
+
+    # Buy 1 Cost Basis: (10 * 100 + 5) / 10 = 100.5
+    # Sell Proceeds: (8 * 150) - 3 = 1197
+    # Cost Basis for Sell: 8 * 100.5 = 804
+    # Gain = 1197 - 804 = 393
+    expected_gain = 393.0
+
+    sell_row_result = processed_df[processed_df[TRANSACTION_TYPE] == TYPE_SELL].iloc[0]
+    buy_rows_result = processed_df[processed_df[TRANSACTION_TYPE] == TYPE_BUY]
+
+    assert sell_row_result[RESULT_FIFO_GAIN_LOSS] == pytest.approx(expected_gain)
+    assert buy_rows_result[RESULT_FIFO_GAIN_LOSS].isna().all()
+
+def test_fifo_precission(sample_transactions_fifo_base):
+    """ Sell consumes shares from multiple buys, including commissions. """
+    data = {
+        DATETIME: ['2023-02-01', '2024-12-01'],
+        TICKER: ['XYZ', 'XYZ'],
+        TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL],
+        SHARES: [20, -20],
+        SHARE_PRICE: [100/1.1, 90/1.04],
+        COMISION: [1/1.1, 1/1.04]
+    }
+    
+    # Numerically:
+    # Buy Total Cost = (20 * 90.90909090909091) + 0.9090909090909091 = 1818.181818181818 + 0.9090909090909091 = 1819.090909090909
+    # Buy Cost per Share = 1819.090909090909 / 20 = 90.95454545454545
+    # Sell Proceeds = (20 * 86.53846153846153) - 0.9615384615384615 = 1730.7692307692307 - 0.9615384615384615 = 1729.8076923076924
+
+    # expected_gain =  1729.8076923076924 - (20 * 90.95454545454545) = 1729.8076923076924 - 1819.090909090909 = -89.2832167832166
+
+    processed_df = run_fifo_calc_direct(data, sample_transactions_fifo_base)
+
+    buy_shares = 20
+    buy_price = 100 / 1.1
+    buy_commission = 1 / 1.1
+    sell_shares = 20
+    sell_price = 90 / 1.04
+    sell_commission = 1 / 1.04
+
+    buy_total_cost = (buy_shares * buy_price) + buy_commission
+    buy_cost_per_share = buy_total_cost / buy_shares
+
+    sell_proceeds = (sell_shares * sell_price) - sell_commission
+
+    cost_basis_sell = sell_shares * buy_cost_per_share
+
+    gain = sell_proceeds - cost_basis_sell
+
+    expected_gain = -89.28321678
+
+    sell_row_result = processed_df[processed_df[TRANSACTION_TYPE] == TYPE_SELL].iloc[0]
+
+    assert sell_row_result[RESULT_FIFO_GAIN_LOSS] == pytest.approx(expected_gain, rel=1e-9, abs=1e-9)
+
+
+    
