@@ -2,10 +2,6 @@ import pandas as pd
 import logging
 from typing import List, Optional # Added for type hinting
 
-# Configuración básica del logger
-logging.basicConfig(filename='logfile.log', level=logging.ERROR, # Changed to INFO for more detail
-                    format='%(asctime)s - %(name)s - %(module)s - %(funcName)s - %(levelname)s - %(message)s')
-
 # Assuming these are imported correctly from your project structure
 from pyportfolio.transaction_manager import TransactionManager
 from pyportfolio.calculators.fifo_calculator import FIFOCalculator, RESULT_FIFO_GAIN_LOSS
@@ -20,7 +16,7 @@ from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER # Added DIVID
 # Method to be called from power query with dataset as parameter
 def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
     
-    DIVIDEND_EARNINGS = "Beneficio Dividendos"
+    RCM = "Rendimientos Capital Mobiliario"
 
     logger = logging.getLogger(__name__)
 
@@ -28,7 +24,7 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
     TEST_COLUMN_NAME = 'Test' 
 
     fifo_result_column = RESULT_FIFO_GAIN_LOSS
-    dividend_result_column = DIVIDEND_EARNINGS
+    dividend_result_column = RCM
     irpf_result_columns = [RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT]
     calculated_columns = [fifo_result_column, dividend_result_column] + irpf_result_columns
     fifo_result_dtype = 'Float64'
@@ -210,3 +206,5 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
 
     # --- Final Assignment ---
     result = final_results_df if final_results_df is not None else pd.DataFrame()
+
+    return result
