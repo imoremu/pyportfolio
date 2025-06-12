@@ -104,7 +104,7 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
                     )
                     logger.debug(f"Group {group_id_str}: Registered FIFOCalculator.")
 
-                    dividend_calculator = DividendCalculator()
+                    dividend_calculator = DividendCalculator(grouped_data)
                     tm.register_calculation(
                         calculator=dividend_calculator,
                         column=dividend_result_column, 
@@ -203,8 +203,13 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
         final_results_df['Error'] = f"Critical error: {str(e)}"
         logger.info("Created final error DataFrame due to critical failure.")
 
+    
+    if final_results_df is None:
+        logger.warning("Final results DataFrame is None. Returning empty DataFrame.")
+        result = pd.DataFrame()
 
-    # --- Final Assignment ---
-    result = final_results_df if final_results_df is not None else pd.DataFrame()
+    else:
+        result = final_results_df 
+        
 
     return result
