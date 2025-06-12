@@ -8,21 +8,23 @@ logging.basicConfig(filename='logfile.log', level=logging.ERROR, # Changed to IN
 
 # Assuming these are imported correctly from your project structure
 from pyportfolio.transaction_manager import TransactionManager
-from pyportfolio.calculators.fifo_calculator import FIFOCalculator
+from pyportfolio.calculators.fifo_calculator import FIFOCalculator, RESULT_FIFO_GAIN_LOSS
 from pyportfolio.calculators.dividend_calculator import DividendCalculator
 from pyportfolio.calculators.irpf_earnings_calculator import (
     IrpfEarningsCalculator,
     RESULT_TAXABLE_GAIN_LOSS,
     RESULT_DEFERRED_ADJUSTMENT
 )
-from pyportfolio.columns import FIFO, DATETIME, TRANSACTION_TYPE, TICKER, DIVIDEND_EARNINGS # Added DIVIDEND_EARNINGS
+from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER # Added DIVIDEND_EARNINGS
+
+DIVIDEND_EARNINGS = "Beneficio Dividendos"
 
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 TEST_COLUMN_NAME = 'Test' 
 
-fifo_result_column = FIFO
+fifo_result_column = RESULT_FIFO_GAIN_LOSS
 dividend_result_column = DIVIDEND_EARNINGS
 irpf_result_columns = [RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT]
 calculated_columns = [fifo_result_column, dividend_result_column] + irpf_result_columns

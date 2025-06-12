@@ -10,6 +10,8 @@ from pyportfolio.columns import (
     TYPE_DIVIDEND
 )
 
+DIVIDEND_EARNINGS = "Beneficio Dividendos"
+
 class DividendCalculator(BaseRowCalculator):
     """
     Calculator that returns the total dividend if the transaction type is 'dividend'.

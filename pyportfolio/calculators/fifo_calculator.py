@@ -16,9 +16,10 @@ from pyportfolio.columns import (
     DATETIME,
     COMISION, # Added COMISION
     TYPE_BUY,
-    TYPE_SELL,
-    FIFO as RESULT_FIFO_GAIN_LOSS
+    TYPE_SELL
 )
+
+RESULT_FIFO_GAIN_LOSS = "FIFO Beneficio / Pérdida"
 
 # Internal state columns (_ prefix indicates internal use)
 _INTERNAL_FIFO_AVAILABLE_SHARES = '_FifoAvailableShares'

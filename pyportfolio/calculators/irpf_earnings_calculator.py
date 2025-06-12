@@ -20,8 +20,8 @@ from pyportfolio.columns import (
 )
 
 # Result Column Names
-RESULT_TAXABLE_GAIN_LOSS = 'IRPF - Ganancia / Pérdida Imputable'
-RESULT_DEFERRED_ADJUSTMENT = 'IRPF - Ajuste Diferido'
+RESULT_TAXABLE_GAIN_LOSS = 'Ganancias / Pérdidas Patrimoniales (GPP)'
+RESULT_DEFERRED_ADJUSTMENT = 'GPP - Ajuste por Pérdida Diferida'
 _RESULT_COLUMNS = [RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT]
 
 # Internal State Columns (prefix _ indicates internal use)
