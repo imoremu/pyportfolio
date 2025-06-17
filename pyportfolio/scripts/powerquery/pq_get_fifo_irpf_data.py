@@ -209,7 +209,17 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
         result = pd.DataFrame()
 
     else:
-        result = final_results_df 
-        
+        result = final_results_df      
 
+    # Ensure result has the expected columns 
+    expected_columns = list(dict.fromkeys(dataset.columns.tolist() + calculated_columns))
+    logger.debug(f"Result Expected columns: {expected_columns}")
+    logger.debug(f"Result Actual columns: {result.columns.tolist()}")
+
+    if not all(col in result.columns for col in expected_columns):
+        logger.warning("Result DataFrame does not contain all expected columns. Adding missing columns with NA.")
+        for col in expected_columns:
+            if col not in result.columns:
+                result[col] = pd.NA
+                 
     return result
