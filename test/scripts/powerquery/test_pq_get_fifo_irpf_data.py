@@ -95,7 +95,7 @@ def test_simple_gain_and_dividend_scenario(base_input_columns, caplog):
 
     # Row 1 (DIVIDEND)
     assert pd.isna(result_df.loc[1, RESULT_FIFO_GAIN_LOSS])
-    assert result_df.loc[1, SCRIPT_RCM_COLUMN_NAME] == 19.5
+    assert result_df.loc[1, SCRIPT_RCM_COLUMN_NAME] == 20 # Note: Spanish legislaton does not allow to deduct comissions from dividends
     assert pd.isna(result_df.loc[1, RESULT_TAXABLE_GAIN_LOSS]) # IRPF calc ignores dividends for GPP
     assert pd.isna(result_df.loc[1, RESULT_DEFERRED_ADJUSTMENT])
 

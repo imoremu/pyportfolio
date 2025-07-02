@@ -1,7 +1,6 @@
 import pandas as pd
 from typing import Any
-from .base_calculator import BaseRowCalculator
-
+from pyportfolio.calculators.base_calculator import BaseRowCalculator
 
 class AveragePriceCalculator(BaseRowCalculator):
     """

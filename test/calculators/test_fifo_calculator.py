@@ -1,5 +1,3 @@
-# test/calculators/test_fifo_calculator.py
-
 import pytest
 import pandas as pd
 import numpy as np

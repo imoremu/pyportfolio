@@ -1,0 +1,46 @@
+Config_name: PortfolioStudioEnvironment
+Current: default
+
+default:
+  students:
+    IRPF Capital Gains Losses Student:        
+      class: pyportfolio.studio.students.irpf_capital_gains_losses_student.IRPFCapitalGainsLossesStudent
+      config: 
+        student: IRPF Capital Gains Losses Student
+        researchs:
+            FIFO Earnings:
+              initial : False
+              input: 
+                researches: 
+                  - portfolio initial data         
+                  
+            IRPF Taxable Base:
+              initial : False
+              input: 
+                researchs: 
+                  - FIFO Earnings
+
+
+    IRPF Moveable Capital Income Student:
+      class: pyportfolio.studio.students.irpf_moveable_capital_income_student.IRPFMoveableCapitalIncomeStudent
+      config: 
+        student: IRPF Moveable Capital Income Student
+        researchs:
+            Dividend Income:
+              initial : False
+              input: 
+                researches: 
+                  - portfolio initial data                                       
+
+    General IRPF Student:
+      class: pyportfolio.studio.students.general_irpf_student.GeneralIRPFStudent
+      student: General IRPF Student
+        researchs:
+            Loss Tax Compensation:
+              initial : False
+              input: 
+                researches: 
+                  - IRPF Taxable Base
+                  - Dividend Income
+  student_factory:
+    class: pydatastudio.data.studio.studentes.student_factory.StudentFactory                                   

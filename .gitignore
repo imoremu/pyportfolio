@@ -43,7 +43,8 @@ coverage.xml
 *.swp
 *.swo
 *.~ 
-.DS_Store
+.DS_Store^
+log*
 
 # Archivos generados por editores
 .vscode/
