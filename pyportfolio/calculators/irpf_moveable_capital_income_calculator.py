@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import Any
-from .base_calculator import BaseRowCalculator
+from pyportfolio.calculators.base_calculator import BaseRowCalculator
 
 from pyportfolio.columns import (
     SHARE_PRICE,
@@ -9,7 +9,7 @@ from pyportfolio.columns import (
     TYPE_DIVIDEND
 )
 
-class DividendCalculator(BaseRowCalculator):
+class IRPFMoveableCapitalIncomeCalculator(BaseRowCalculator):
     """
     Calculator that returns the total dividend if the transaction type is 'dividend'.
     Otherwise, returns None.

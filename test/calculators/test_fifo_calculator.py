@@ -52,8 +52,7 @@ def run_fifo_calc_direct(data, base_fixture):
     calculator = FIFOCalculator()
     results_df = calculator.calculate_table(transactions_input.copy())
 
-    merged_df = transactions_input.join(results_df)
-    return merged_df
+    return results_df
 
 # --- Test Cases ---
 

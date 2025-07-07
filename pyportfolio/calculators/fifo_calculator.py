@@ -1,11 +1,10 @@
 # pyportfolio/calculators/fifo_calculator.py
 
 import pandas as pd
-from typing import Optional
 import logging
 import numpy as np
 
-from .base_calculator import BaseTableCalculator
+from pyportfolio.calculators.base_calculator import BaseTableCalculator
 
 # --- Constants ---
 from pyportfolio.columns import (
@@ -201,8 +200,10 @@ class FIFOCalculator(BaseTableCalculator):
         internal_df = internal_df.set_index(original_index_name)
         internal_df.index.name = df.index.name
 
-        results_df = internal_df[[RESULT_FIFO_GAIN_LOSS]].copy()
-        results_df = results_df.reindex(df.index)
+        #results_df = internal_df[[RESULT_FIFO_GAIN_LOSS]].copy()
+        #results_df = results_df.reindex(df.index)
+
+        results_df = internal_df
 
         logger.info("Finished FIFO calculate_table (with commissions).")
         return results_df

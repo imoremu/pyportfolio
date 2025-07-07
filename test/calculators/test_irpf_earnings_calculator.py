@@ -8,7 +8,7 @@ from datetime import datetime
 # Import the calculator and result column names
 from pyportfolio.calculators.irpf_earnings_calculator import (
     IrpfEarningsCalculator,
-    RESULT_TAXABLE_GAIN_LOSS,
+    GPP,
     RESULT_DEFERRED_ADJUSTMENT
 )
 
@@ -100,9 +100,9 @@ def test_irpf_gain_is_calculated(sample_transactions_base):
     # Gain = 1194 - 1005 = 189
     expected_gain = 189.0
 
-    assert buy_row_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_result[GPP] == 0.0
     assert buy_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_gain)
+    assert sell_row_result[GPP] == pytest.approx(expected_gain)
     assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_no_repurchase_within_window(sample_transactions_base):
@@ -127,11 +127,11 @@ def test_irpf_loss_no_repurchase_within_window(sample_transactions_base):
     # No repurchase in window -> Allowable Loss = -209
     expected_loss = -209.0
 
-    assert buy_row_1_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_1_result[GPP] == 0.0
     assert buy_row_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_loss)
+    assert sell_row_result[GPP] == pytest.approx(expected_loss)
     assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_row_2_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_2_result[GPP] == 0.0
     assert buy_row_2_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_deferred_due_to_repurchase_within_2_months_after(sample_transactions_base):
@@ -158,11 +158,11 @@ def test_irpf_loss_deferred_due_to_repurchase_within_2_months_after(sample_trans
     expected_allowable_loss = -104.5
     expected_buy_adjustment = 104.5
 
-    assert buy_row_initial_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_initial_result[GPP] == 0.0
     assert buy_row_initial_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_allowable_loss)
+    assert sell_row_result[GPP] == pytest.approx(expected_allowable_loss)
     assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_row_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_blocking_result[GPP] == 0.0
     assert buy_row_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_buy_adjustment)
 
 def test_irpf_loss_deferred_due_to_repurchase_within_2_months_before(sample_transactions_base):
@@ -189,11 +189,11 @@ def test_irpf_loss_deferred_due_to_repurchase_within_2_months_before(sample_tran
     expected_allowable_loss = -104.5
     expected_buy_adjustment = 104.5
 
-    assert buy_row_initial_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_initial_result[GPP] == 0.0
     assert buy_row_initial_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0 # Not the blocker
-    assert buy_row_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_blocking_result[GPP] == 0.0
     assert buy_row_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_buy_adjustment) # Is the blocker
-    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_allowable_loss)
+    assert sell_row_result[GPP] == pytest.approx(expected_allowable_loss)
     assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_not_deferred_if_repurchase_is_different_ticker(sample_transactions_base):
@@ -216,11 +216,11 @@ def test_irpf_loss_not_deferred_if_repurchase_is_different_ticker(sample_transac
     # Repurchase is different ticker, so no deferral. Allowable Loss = -209.
     expected_loss = -209.0
 
-    assert buy_row_xyz_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_xyz_result[GPP] == 0.0
     assert buy_row_xyz_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert sell_row_xyz_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_loss)
+    assert sell_row_xyz_result[GPP] == pytest.approx(expected_loss)
     assert sell_row_xyz_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_row_abc_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_abc_result[GPP] == 0.0
     assert buy_row_abc_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_deferred_and_gain_realized(sample_transactions_base):
@@ -260,15 +260,15 @@ def test_irpf_loss_deferred_and_gain_realized(sample_transactions_base):
     # Gain = 836.5 - 758.5 = 78.0.
     expected_gain_sell2 = 78.0
 
-    assert buy_1_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_1_result[GPP] == 0.0
     assert buy_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_2_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_2_blocking_result[GPP] == 0.0
     assert buy_2_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_adj_buy2)
-    assert sell_1_deferred_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0 # Fully deferred
+    assert sell_1_deferred_result[GPP] == 0.0 # Fully deferred
     assert sell_1_deferred_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_3_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_3_blocking_result[GPP] == 0.0
     assert buy_3_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_adj_buy3)
-    assert sell_2_gain_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_gain_sell2)
+    assert sell_2_gain_result[GPP] == pytest.approx(expected_gain_sell2)
     assert sell_2_gain_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_deferred_and_loss_realized(sample_transactions_base):
@@ -306,15 +306,15 @@ def test_irpf_loss_deferred_and_loss_realized(sample_transactions_base):
     # No repurchases within +/- 2 months of Sell 2 (2023-10-10), so loss is allowable.
     expected_loss_sell2 = -313.0
 
-    assert buy_1_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_1_result[GPP] == 0.0
     assert buy_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_2_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_2_blocking_result[GPP] == 0.0
     assert buy_2_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_adj_buy2)
-    assert sell_1_deferred_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0 # Fully deferred
+    assert sell_1_deferred_result[GPP] == 0.0 # Fully deferred
     assert sell_1_deferred_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_3_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_3_blocking_result[GPP] == 0.0
     assert buy_3_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_adj_buy3)
-    assert sell_2_loss_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_loss_sell2)
+    assert sell_2_loss_result[GPP] == pytest.approx(expected_loss_sell2)
     assert sell_2_loss_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_single_buy_blocks_two_separate_sells_capacity_logic(sample_transactions_base):
@@ -355,13 +355,13 @@ def test_irpf_single_buy_blocks_two_separate_sells_capacity_logic(sample_transac
     # Total Adjustment on Buy Blocking = Deferred from Sell 1 + Deferred from Sell 2 = 105 + 62 = 167.
     expected_total_adjustment_on_buy = 167.0
 
-    assert buy_1_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_1_result[GPP] == 0.0
     assert buy_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert sell_1_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(allowable_sell1)
+    assert sell_1_result[GPP] == pytest.approx(allowable_sell1)
     assert sell_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_blocking_result[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_blocking_result[GPP] == 0.0
     assert buy_blocking_result[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(expected_total_adjustment_on_buy)
-    assert sell_2_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_allowable_sell2)
+    assert sell_2_result[GPP] == pytest.approx(expected_allowable_sell2)
     assert sell_2_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_handles_non_buy_sell_transactions(sample_transactions_base):
@@ -379,9 +379,9 @@ def test_irpf_handles_non_buy_sell_transactions(sample_transactions_base):
     buy_row_result = processed_df.iloc[0]
     dividend_row_result = processed_df.iloc[1]
 
-    assert buy_row_result[RESULT_TAXABLE_GAIN_LOSS] == 0
+    assert buy_row_result[GPP] == 0
     assert buy_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0
-    assert pd.isna(dividend_row_result[RESULT_TAXABLE_GAIN_LOSS])
+    assert pd.isna(dividend_row_result[GPP])
     assert pd.isna(dividend_row_result[RESULT_DEFERRED_ADJUSTMENT])
 
 def test_irpf_edge_case_exactly_two_months_before_exclusive(sample_transactions_base):
@@ -409,9 +409,9 @@ def test_irpf_edge_case_exactly_two_months_before_exclusive(sample_transactions_
     expected_loss = -109.0
 
     assert buy_row_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_row_2_potential_blocker[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_2_potential_blocker[GPP] == 0.0
     assert buy_row_2_potential_blocker[RESULT_DEFERRED_ADJUSTMENT] == 0.0 # Not blocked
-    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_loss)
+    assert sell_row_result[GPP] == pytest.approx(expected_loss)
     assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_edge_case_exactly_two_months_after_exclusive(sample_transactions_base):
@@ -438,9 +438,9 @@ def test_irpf_edge_case_exactly_two_months_after_exclusive(sample_transactions_b
     expected_loss = -209.0
 
     assert buy_row_1_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert sell_row_result[RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(expected_loss)
+    assert sell_row_result[GPP] == pytest.approx(expected_loss)
     assert sell_row_result[RESULT_DEFERRED_ADJUSTMENT] == 0.0
-    assert buy_row_2_potential_blocker[RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert buy_row_2_potential_blocker[GPP] == 0.0
     assert buy_row_2_potential_blocker[RESULT_DEFERRED_ADJUSTMENT] == 0.0 # Not blocked
 
 # --- Validation Tests (calling calculate_table directly) ---
@@ -506,7 +506,7 @@ def test_calculate_table_converts_date_column_if_possible(sample_transactions_ba
     result_df = calculator.calculate_table(transactions)
     # Check the output structure
     assert isinstance(result_df, pd.DataFrame)
-    assert RESULT_TAXABLE_GAIN_LOSS in result_df.columns
+    assert GPP in result_df.columns
     assert RESULT_DEFERRED_ADJUSTMENT in result_df.columns
     assert result_df.index.equals(transactions.index) # Check index preservation
 

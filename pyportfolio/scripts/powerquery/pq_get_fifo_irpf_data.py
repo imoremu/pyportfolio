@@ -1,17 +1,17 @@
 import pandas as pd
 import logging
-from typing import List, Optional # Added for type hinting
+from typing import List, Optional
 
-# Assuming these are imported correctly from your project structure
+from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER, GPP
+
 from pyportfolio.transaction_manager import TransactionManager
 from pyportfolio.calculators.fifo_calculator import FIFOCalculator, RESULT_FIFO_GAIN_LOSS
-from pyportfolio.calculators.dividend_calculator import DividendCalculator
+from pyportfolio.calculators.irpf_moveable_capital_income_calculator import IRPFMoveableCapitalIncomeCalculator
 from pyportfolio.calculators.irpf_earnings_calculator import (
     IrpfEarningsCalculator,
-    RESULT_TAXABLE_GAIN_LOSS,
+    GPP,
     RESULT_DEFERRED_ADJUSTMENT
 )
-from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER # Added DIVIDEND_EARNINGS
 
 # Method to be called from power query with dataset as parameter
 def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
@@ -25,7 +25,7 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
 
     fifo_result_column = RESULT_FIFO_GAIN_LOSS
     dividend_result_column = RCM
-    irpf_result_columns = [RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT]
+    irpf_result_columns = [GPP, RESULT_DEFERRED_ADJUSTMENT]
     calculated_columns = [fifo_result_column, dividend_result_column] + irpf_result_columns
     fifo_result_dtype = 'Float64'
     dividend_result_dtype = 'Float64' 
@@ -104,13 +104,13 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
                     )
                     logger.debug(f"Group {group_id_str}: Registered FIFOCalculator.")
 
-                    dividend_calculator = DividendCalculator(grouped_data)
+                    dividend_calculator = IRPFMoveableCapitalIncomeCalculator(grouped_data)
                     tm.register_calculation(
                         calculator=dividend_calculator,
                         column=dividend_result_column, 
                         dtype=dividend_result_dtype
                     )
-                    logger.debug(f"Group {group_id_str}: Registered DividendCalculator.")
+                    logger.debug(f"Group {group_id_str}: Registered IRPFMoveableCapitalIncomeCalculator.")
 
                     irpf_calculator = IrpfEarningsCalculator()
                     tm.register_calculation(

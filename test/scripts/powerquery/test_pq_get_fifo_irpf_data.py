@@ -9,13 +9,9 @@ from pyportfolio.scripts.powerquery.pq_get_fifo_irpf_data import pq_get_fifo_irp
 # Column constants used in the script and for assertions
 from pyportfolio.columns import (
     DATETIME, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION,
-    TYPE_BUY, TYPE_SELL, TYPE_DIVIDEND
+    TYPE_BUY, TYPE_SELL, TYPE_DIVIDEND, GPP, RESULT_DEFERRED_ADJUSTMENT
 )
 from pyportfolio.calculators.fifo_calculator import RESULT_FIFO_GAIN_LOSS
-from pyportfolio.calculators.irpf_earnings_calculator import (
-    RESULT_TAXABLE_GAIN_LOSS,
-    RESULT_DEFERRED_ADJUSTMENT
-)
 
 # --- Constants used by the script under test ---
 SCRIPT_TEST_COLUMN_NAME = 'Test'
@@ -47,7 +43,7 @@ def test_empty_input_dataframe(base_input_columns):
     result_df = pq_get_fifo_irpf_data(empty_df)
 
     assert result_df.empty
-    expected_calculated_cols = [RESULT_FIFO_GAIN_LOSS, SCRIPT_RCM_COLUMN_NAME, RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT]
+    expected_calculated_cols = [RESULT_FIFO_GAIN_LOSS, SCRIPT_RCM_COLUMN_NAME, GPP, RESULT_DEFERRED_ADJUSTMENT]
     for col in base_input_columns + expected_calculated_cols:
         assert col in result_df.columns
 
@@ -64,7 +60,7 @@ def test_missing_test_column(base_input_columns):
     assert 'Error' in result_df.columns
     assert result_df['Error'].iloc[0] == f"Missing test column: {SCRIPT_TEST_COLUMN_NAME}"
     # Check that calculated columns exist and are NA
-    expected_calculated_cols = [RESULT_FIFO_GAIN_LOSS, SCRIPT_RCM_COLUMN_NAME, RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT]
+    expected_calculated_cols = [RESULT_FIFO_GAIN_LOSS, SCRIPT_RCM_COLUMN_NAME, GPP, RESULT_DEFERRED_ADJUSTMENT]
     for col in expected_calculated_cols:
         assert col in result_df.columns
         assert result_df[col].isna().all()
@@ -90,19 +86,19 @@ def test_simple_gain_and_dividend_scenario(base_input_columns, caplog):
     # Row 0 (BUY)
     assert pd.isna(result_df.loc[0, RESULT_FIFO_GAIN_LOSS])
     assert pd.isna(result_df.loc[0, SCRIPT_RCM_COLUMN_NAME])
-    assert result_df.loc[0, RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert result_df.loc[0, GPP] == 0.0
     assert result_df.loc[0, RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
     # Row 1 (DIVIDEND)
     assert pd.isna(result_df.loc[1, RESULT_FIFO_GAIN_LOSS])
     assert result_df.loc[1, SCRIPT_RCM_COLUMN_NAME] == 20 # Note: Spanish legislaton does not allow to deduct comissions from dividends
-    assert pd.isna(result_df.loc[1, RESULT_TAXABLE_GAIN_LOSS]) # IRPF calc ignores dividends for GPP
+    assert pd.isna(result_df.loc[1, GPP]) # IRPF calc ignores dividends for GPP
     assert pd.isna(result_df.loc[1, RESULT_DEFERRED_ADJUSTMENT])
 
     # Row 2 (SELL)
     assert result_df.loc[2, RESULT_FIFO_GAIN_LOSS] == pytest.approx(197.0)
     assert pd.isna(result_df.loc[2, SCRIPT_RCM_COLUMN_NAME])
-    assert result_df.loc[2, RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(197.0)
+    assert result_df.loc[2, GPP] == pytest.approx(197.0)
     assert result_df.loc[2, RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
 def test_irpf_loss_deferral_scenario(base_input_columns):
@@ -123,16 +119,16 @@ def test_irpf_loss_deferral_scenario(base_input_columns):
     assert 'Error' not in result_df.columns or result_df['Error'].isna().all()
 
     # Row 0 (Initial BUY)
-    assert result_df.loc[0, RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert result_df.loc[0, GPP] == 0.0
     assert result_df.loc[0, RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
     # Row 1 (SELL with deferred loss)
     assert result_df.loc[1, RESULT_FIFO_GAIN_LOSS] == pytest.approx(-209.0)
-    assert result_df.loc[1, RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(-104.5)
+    assert result_df.loc[1, GPP] == pytest.approx(-104.5)
     assert result_df.loc[1, RESULT_DEFERRED_ADJUSTMENT] == 0.0
 
     # Row 2 (Blocking BUY)
-    assert result_df.loc[2, RESULT_TAXABLE_GAIN_LOSS] == 0.0
+    assert result_df.loc[2, GPP] == 0.0
     assert result_df.loc[2, RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(104.5)
 
 def test_multiple_groups_and_tickers(base_input_columns):
@@ -155,13 +151,13 @@ def test_multiple_groups_and_tickers(base_input_columns):
 
     # G1, AAA, SELL (index 1)
     assert result_df.loc[1, RESULT_FIFO_GAIN_LOSS] == pytest.approx(9.0)
-    assert result_df.loc[1, RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(9.0)
+    assert result_df.loc[1, GPP] == pytest.approx(9.0)
 
     # G1, BBB, SELL (index 3)
     assert result_df.loc[3, RESULT_FIFO_GAIN_LOSS] == pytest.approx(-12.0)
-    assert result_df.loc[3, RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(-12.0) # Assuming no deferral
+    assert result_df.loc[3, GPP] == pytest.approx(-12.0) # Assuming no deferral
 
     # G2, AAA, SELL (index 5)
     assert result_df.loc[5, RESULT_FIFO_GAIN_LOSS] == pytest.approx(22.4)
-    assert result_df.loc[5, RESULT_TAXABLE_GAIN_LOSS] == pytest.approx(22.4)
+    assert result_df.loc[5, GPP] == pytest.approx(22.4)
 

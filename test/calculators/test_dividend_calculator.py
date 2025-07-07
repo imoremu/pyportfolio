@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from pyportfolio.calculators.dividend_calculator import DividendCalculator
+from pyportfolio.calculators.irpf_moveable_capital_income_calculator import IRPFMoveableCapitalIncomeCalculator
 
 from pyportfolio.columns import (
     SHARE_PRICE,
@@ -27,7 +27,7 @@ def test_non_dividend_transactions_return_none(sample_dividend_transactions):
     Tests that non-dividend transactions (e.g., TYPE_BUY, TYPE_SELL)
     result in None from the DividendCalculator.
     """
-    calc = DividendCalculator(sample_dividend_transactions)
+    calc = IRPFMoveableCapitalIncomeCalculator(sample_dividend_transactions)
 
     # Test TYPE_BUY transaction (index 0)
     buy_result = calc.calculate_row(sample_dividend_transactions.iloc[0])
@@ -41,7 +41,7 @@ def test_dividend_transactions_are_calculated(sample_dividend_transactions):
     """
     Tests that 'dividend' transactions are correctly calculated.
     """
-    calc = DividendCalculator(sample_dividend_transactions)
+    calc = IRPFMoveableCapitalIncomeCalculator(sample_dividend_transactions)
 
     # Test first dividend transaction (index 1)
     # Dividend = Shares * Price - Commission = 20 * 2 = 40

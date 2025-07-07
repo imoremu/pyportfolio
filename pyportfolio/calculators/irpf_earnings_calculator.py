@@ -1,13 +1,11 @@
 import pandas as pd
 from pandas.tseries.offsets import DateOffset
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple
 import logging
 import numpy as np
 
-# Import the correct base class
-from .base_calculator import BaseTableCalculator
+from pyportfolio.calculators.base_calculator import BaseTableCalculator
 
-# --- Constants ---
 from pyportfolio.columns import (
     SHARE_PRICE,
     SHARES,
@@ -15,24 +13,22 @@ from pyportfolio.columns import (
     TICKER,
     DATETIME,
     COMISION,
-    TYPE_BUY, # Use TYPE_BUY constant
-    TYPE_SELL # Use TYPE_SELL constant
+    TYPE_BUY, 
+    TYPE_SELL,
+    GPP,
+    RESULT_DEFERRED_ADJUSTMENT
 )
 
-# Result Column Names
-RESULT_TAXABLE_GAIN_LOSS = 'Ganancias / Pérdidas Patrimoniales (GPP)'
-RESULT_DEFERRED_ADJUSTMENT = 'GPP - Ajuste por Pérdida Diferida'
-_RESULT_COLUMNS = [RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT]
 
-# Internal State Columns (prefix _ indicates internal use)
+_RESULT_COLUMNS = [GPP, RESULT_DEFERRED_ADJUSTMENT]
+
 _INTERNAL_AVAILABLE_SHARES = '_IrpfAvailableShares'
 _INTERNAL_DEFERRED_ADJUSTMENT_STATE = '_IrpfDeferredAdjustmentState'
-_INTERNAL_ADJUSTED_COST_PER_SHARE = '_IrpfAdjustedCostPerShare' # Cost basis including commission AND deferred losses
+_INTERNAL_ADJUSTED_COST_PER_SHARE = '_IrpfAdjustedCostPerShare'
 _INTERNAL_BLOCKING_CAPACITY_REMAINING = '_IrpfBlockingCapacityRemaining'
-_INTERNAL_ORIGINAL_COST_PER_SHARE_WITH_COMMISSION = '_IrpfOriginalCostPerShareWithCommission' # Cost basis including commission ONLY
-_ORIGINAL_INDEX_COL = '_original_index' # Column to store original index
+_INTERNAL_ORIGINAL_COST_PER_SHARE_WITH_COMMISSION = '_IrpfOriginalCostPerShareWithCommission'
+_ORIGINAL_INDEX_COL = '_original_index' 
 
-# --- Logger ---
 logger = logging.getLogger(__name__)
 
 class IrpfEarningsCalculator(BaseTableCalculator):
@@ -81,7 +77,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
 
         Returns:
             A new DataFrame containing only the calculated result columns
-            (RESULT_TAXABLE_GAIN_LOSS, RESULT_DEFERRED_ADJUSTMENT)
+            (GPP, RESULT_DEFERRED_ADJUSTMENT)
             with the same index as the input df.
         """
         logger.info("Starting IRPF calculate_table (with commissions, negative shares for sells)")
@@ -126,9 +122,9 @@ class IrpfEarningsCalculator(BaseTableCalculator):
         internal_df[_INTERNAL_ORIGINAL_COST_PER_SHARE_WITH_COMMISSION] = 0.0
         internal_df[_INTERNAL_BLOCKING_CAPACITY_REMAINING] = 0.0
 
-        internal_df[RESULT_TAXABLE_GAIN_LOSS] = pd.NA
+        internal_df[GPP] = pd.NA
         internal_df[RESULT_DEFERRED_ADJUSTMENT] = pd.NA
-        internal_df[RESULT_TAXABLE_GAIN_LOSS] = internal_df[RESULT_TAXABLE_GAIN_LOSS].astype('Float64')
+        internal_df[GPP] = internal_df[GPP].astype('Float64')
         internal_df[RESULT_DEFERRED_ADJUSTMENT] = internal_df[RESULT_DEFERRED_ADJUSTMENT].astype('Float64')
         # ---
 
@@ -162,10 +158,10 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                     # _process_sell_and_update_buys handles share value validation (e.g., non-negative shares for a sell)
                     result_tuple = self._process_sell_and_update_buys(row, index, internal_df)
                     if result_tuple is not None:
-                        internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = result_tuple[0]
+                        internal_df.loc[index, GPP] = result_tuple[0]
                         internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = result_tuple[1] # Should be 0.0 for sells
                     else: # Indicates an issue within _process_sell_and_update_buys (e.g. invalid sell data)
-                        internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = None
+                        internal_df.loc[index, GPP] = None
                         internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
 
                 # Process buys based transaction type 'buy'
@@ -174,7 +170,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                     if shares_value <= 1e-9:
                          logger.warning(f"Row {index} has Transaction Type '{TYPE_BUY}' but non-positive SHARES ({shares_value}). IRPF results set to 0.0, but check data integrity for cost basis calculations.")
                     # For IRPF capital gains, a buy itself doesn't generate taxable gain/loss immediately.
-                    internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = 0.0
+                    internal_df.loc[index, GPP] = 0.0
                     # RESULT_DEFERRED_ADJUSTMENT for buy rows is populated at the end from _INTERNAL_DEFERRED_ADJUSTMENT_STATE
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = 0.0
 
@@ -182,12 +178,12 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                     # Handles transaction types that are not explicitly TYPE_SELL or TYPE_BUY (e.g., 'dividend')
                     # Also handles rows with ambiguous shares if type is not BUY/SELL.
                     logger.debug(f"Ignoring row {index} for IRPF gain/loss calculation as transaction type '{transaction_type}' is not '{TYPE_SELL}' or '{TYPE_BUY}'. Shares: {shares_value}. Results set to None.")
-                    internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = None
+                    internal_df.loc[index, GPP] = None
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
 
             except Exception as e:
                  logger.error(f"Error processing row {index} during IRPF calculation: {e}. Row: {row.to_dict()}", exc_info=True)
-                 internal_df.loc[index, RESULT_TAXABLE_GAIN_LOSS] = None
+                 internal_df.loc[index, GPP] = None
                  internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
         # --- End Loop ---
 
