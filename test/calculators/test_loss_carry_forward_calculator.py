@@ -168,6 +168,39 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
         self.assertAlmostEqual(analysis_table.loc[2021, GP_POST_COMP], 200)
         self.assertAlmostEqual(analysis_table.loc[2021, GP_TAXABLE_BASE], 200)
         self.assertAlmostEqual(analysis_table.loc[2021, GP_LOSS_CARRIED_FORWARD], 0)
+    
+    def test_compensation_from_gpp_to_rcp_in_different_years(self):
+        """Test G&P loss compensating an RCM gain (25% rule) across different years."""
+        data = {
+            YEAR: [2020, 2021, 2022],
+            GP_INITIAL: [-5000, 0, 0],
+            RCM_INITIAL: [16000, 500, 0]
+        }
+        df = pd.DataFrame(data).set_index(YEAR)
+        calculator = LossCarryForwardCalculator()
+        analysis_table = calculator.calculate_table(df)
+
+        # 2020: G&P loss of -5000, RCM 16000.
+        # Limit for compensation is 0.25 * 16000 = 4000.
+        # We use 4000 from G&P loss to compensate RCM gain.
+        self.assertAlmostEqual(analysis_table.loc[2020, GP_POST_COMP], -1000)
+        self.assertAlmostEqual(analysis_table.loc[2020, GP_LOSS_CARRIED_FORWARD], 1000)
+        self.assertAlmostEqual(analysis_table.loc[2020, RCM_POST_COMP], 12000)
+        self.assertAlmostEqual(analysis_table.loc[2020, RCM_LOSS_CARRIED_FORWARD], 0)
+
+        # 2021: RCM gain of 16000. G&P loss available is 1000.
+        # Limit for compensation is 0.25 * 16000 = 4000.
+        # We use 1000 from G&P loss to compensate RCM gain.
+        self.assertAlmostEqual(analysis_table.loc[2021, GP_LOSS_AVAILABLE], 1000)
+        self.assertAlmostEqual(analysis_table.loc[2021, RCM_LOSS_AVAILABLE], 0)
+
+        self.assertAlmostEqual(analysis_table.loc[2021, RCM_POST_COMP], 375) # 500 - 500
+        self.assertAlmostEqual(analysis_table.loc[2021, GP_POST_COMP], 0) # G&P is not a gain, so it's not affected by its own pool.
+        self.assertAlmostEqual(analysis_table.loc[2021, GP_LOSS_CARRIED_FORWARD], 875)
+
+        # 2022: No G&P loss available, so RCM gain is not compensated.        
+        self.assertAlmostEqual(analysis_table.loc[2022, GP_LOSS_AVAILABLE], 875)
+                                                                           
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

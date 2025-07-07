@@ -43,10 +43,6 @@ class LossCarryForwardCalculator(BaseTableCalculator):
         """
         super().__init__()
 
-        self.gp_losses = deque()  # Stores dicts of {LOSS_YEAR: year_of_loss, LOSS_AMOUNT: amount}
-        self.rcm_losses = deque() # Stores dicts of {LOSS_YEAR: year_of_loss, LOSS_AMOUNT: amount}
-        self.tax_analysis_data = []
-
     def calculate_table(self, annual_results: pd.DataFrame) -> pd.DataFrame:
         """
         Executes the loss carry-forward calculation across all years.
@@ -63,6 +59,9 @@ class LossCarryForwardCalculator(BaseTableCalculator):
 
         annual_results = annual_results.sort_index()
 
+        gp_losses = deque()  # Stores dicts of {LOSS_YEAR: year_of_loss, LOSS_AMOUNT: amount}
+        rcm_losses = deque() # Stores dicts of {LOSS_YEAR: year_of_loss, LOSS_AMOUNT: amount}
+        tax_analysis_data = []
 
         all_years = annual_results.index
         if all_years.empty:
@@ -71,15 +70,15 @@ class LossCarryForwardCalculator(BaseTableCalculator):
         # Iterate from the first year of data to the last
         for year in range(all_years.min(), all_years.max() + 1):
             # 1. Expire old losses (older than 4 years) FIRST.
-            self._expire_losses(year)
+            self._expire_losses(year, gp_losses, rcm_losses)
 
             # 2. Capture the state of available losses at the START of the year.
-            gp_loss_available = sum(loss[LOSS_AMOUNT] for loss in self.gp_losses)
-            rcm_loss_available = sum(loss[LOSS_AMOUNT] for loss in self.rcm_losses)
+            gp_loss_available = sum(loss[LOSS_AMOUNT] for loss in gp_losses)
+            rcm_loss_available = sum(loss[LOSS_AMOUNT] for loss in rcm_losses)
 
             # 3. Process current year's results if they exist
             if year not in annual_results.index:
-                self.tax_analysis_data.append({
+                tax_analysis_data.append({
                     YEAR: year, GP_INITIAL: 0, RCM_INITIAL: 0,
                     GP_LOSS_AVAILABLE: gp_loss_available, RCM_LOSS_AVAILABLE: rcm_loss_available,
                     GP_POST_COMP: 0, RCM_POST_COMP: 0,
@@ -94,11 +93,15 @@ class LossCarryForwardCalculator(BaseTableCalculator):
             net_gp = initial_gp
             net_rcm = initial_rcm
 
-            # 4. Compensate within the same category first
-            net_gp = self._compensate_with_pool(net_gp, self.gp_losses)
-            net_rcm = self._compensate_with_pool(net_rcm, self.rcm_losses)
+            # 4. Compensate within the same category first taken into account losses available from previous years            
+            net_gp = self._compensate_with_pool(net_gp, gp_losses)
+            net_rcm = self._compensate_with_pool(net_rcm, rcm_losses)       
 
-            # 5. Compensate between categories (up to 25% limit)
+            # 5.1 Compensate between categores (up to 25% limit) taken into account losses available from previous years            
+            net_gp = 0.75 * net_gp + self._compensate_with_pool(0.25 * net_gp, rcm_losses)
+            net_rcm = 0.75 * net_rcm + self._compensate_with_pool(0.25 * net_rcm, gp_losses)
+            
+            # 5.2 Compensate between categories (up to 25% limit)
             if net_gp > 0 and net_rcm < 0:
                 limit = 0.25 * net_gp
                 amount_to_compensate = min(abs(net_rcm), limit)
@@ -111,14 +114,15 @@ class LossCarryForwardCalculator(BaseTableCalculator):
                 net_rcm -= amount_to_compensate
                 net_gp += amount_to_compensate
 
+
             # 6. Add any new net losses to the carry-forward pools
             if net_gp < 0:
-                self.gp_losses.append({LOSS_YEAR: year, LOSS_AMOUNT: abs(net_gp)})
+                gp_losses.append({LOSS_YEAR: year, LOSS_AMOUNT: abs(net_gp)})
             if net_rcm < 0:
-                self.rcm_losses.append({LOSS_YEAR: year, LOSS_AMOUNT: abs(net_rcm)})
+                rcm_losses.append({LOSS_YEAR: year, LOSS_AMOUNT: abs(net_rcm)})
             
             # 7. Record the detailed analysis data for the year
-            self.tax_analysis_data.append({
+            tax_analysis_data.append({
                 YEAR: year,
                 GP_INITIAL: initial_gp,
                 RCM_INITIAL: initial_rcm,
@@ -129,25 +133,28 @@ class LossCarryForwardCalculator(BaseTableCalculator):
                 GP_TAXABLE_BASE: max(0, net_gp),
                 RCM_TAXABLE_BASE: max(0, net_rcm),
                 TOTAL_TAXABLE_BASE: max(0, net_gp) + max(0, net_rcm),
-                GP_LOSS_CARRIED_FORWARD: sum(loss[LOSS_AMOUNT] for loss in self.gp_losses),
-                RCM_LOSS_CARRIED_FORWARD: sum(loss[LOSS_AMOUNT] for loss in self.rcm_losses)
+                GP_LOSS_CARRIED_FORWARD: sum(loss[LOSS_AMOUNT] for loss in gp_losses),
+                RCM_LOSS_CARRIED_FORWARD: sum(loss[LOSS_AMOUNT] for loss in rcm_losses)
             })
         
-        analysis_df = pd.DataFrame(self.tax_analysis_data).set_index(YEAR)
+        analysis_df = pd.DataFrame(tax_analysis_data).set_index(YEAR)
         return analysis_df
 
-    def _expire_losses(self, current_year: int):
+    def _expire_losses(self, current_year: int, gp_losses: deque, rcm_losses: deque):
         """Removes losses that are more than 4 years old."""
-        while self.gp_losses and self.gp_losses[0][LOSS_YEAR] < current_year - 4:
-            self.gp_losses.popleft()
-        while self.rcm_losses and self.rcm_losses[0][LOSS_YEAR] < current_year - 4:
-            self.rcm_losses.popleft()
+        while gp_losses and gp_losses[0][LOSS_YEAR] < current_year - 4:
+            gp_losses.popleft()
+
+        while rcm_losses and rcm_losses[0][LOSS_YEAR] < current_year - 4:
+            rcm_losses.popleft()
 
     def _compensate_with_pool(self, gain: float, loss_pool: deque) -> float:
         """Compensates a gain against a pool of losses (FIFO)."""
         if gain <= 0:
             return gain
+        
         remaining_gain = gain
+        
         while loss_pool and remaining_gain > 0:
             oldest_loss = loss_pool[0]
             amount_to_use = min(remaining_gain, oldest_loss[LOSS_AMOUNT])
@@ -155,6 +162,7 @@ class LossCarryForwardCalculator(BaseTableCalculator):
             oldest_loss[LOSS_AMOUNT] -= amount_to_use
             if oldest_loss[LOSS_AMOUNT] < 1e-9:
                 loss_pool.popleft()
+        
         return remaining_gain
 
 
