@@ -2,14 +2,14 @@ import pandas as pd
 import logging
 from typing import List, Optional
 
-from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER, GPP
+from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER, GPP_ALLOWABLE
 
 from pyportfolio.transaction_manager import TransactionManager
 from pyportfolio.calculators.fifo_calculator import FIFOCalculator, RESULT_FIFO_GAIN_LOSS
 from pyportfolio.calculators.irpf_moveable_capital_income_calculator import IRPFMoveableCapitalIncomeCalculator
 from pyportfolio.calculators.irpf_earnings_calculator import (
     IrpfEarningsCalculator,
-    GPP,
+    GPP_ALLOWABLE,
     RESULT_DEFERRED_ADJUSTMENT
 )
 
@@ -25,7 +25,7 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
 
     fifo_result_column = RESULT_FIFO_GAIN_LOSS
     dividend_result_column = RCM
-    irpf_result_columns = [GPP, RESULT_DEFERRED_ADJUSTMENT]
+    irpf_result_columns = [GPP_ALLOWABLE, RESULT_DEFERRED_ADJUSTMENT]
     calculated_columns = [fifo_result_column, dividend_result_column] + irpf_result_columns
     fifo_result_dtype = 'Float64'
     dividend_result_dtype = 'Float64' 

@@ -14,7 +14,8 @@ from pyportfolio.studio.portfolio_studio import PortfolioStudio
 
 from pydatastudio.data.studio.students.student_factory import StudentFactory
 
-from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION, TYPE_BUY, TYPE_SELL, GPP
+from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION, TYPE_BUY, TYPE_SELL, GPP_ALLOWABLE, \
+    GPP_TOTAL
 
 import pyportfolio.logging_setup
 
@@ -28,8 +29,8 @@ def sample_data() -> pd.DataFrame:
         TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL, TYPE_BUY, TYPE_SELL],
         TICKER: ['ABC', 'ABC', 'XYZ', 'XYZ'],
         SHARES: [10, -5, 20, -10],
-        SHARE_PRICE: [100, 120, 50, 60],
-        COMISION: [5, 2, 10, 3]
+        SHARE_PRICE: [100, 120, 50, 40],
+        COMISION: [5, 2, 20, 10]
     })
 
 def test_successful_run_empty_dataset():
@@ -60,9 +61,11 @@ def test_successful_run_multiple_groups(sample_data):
     
     assert len(final_df) == 2
     assert TEST_COLUMN_NAME in final_df.columns
-    assert final_df.loc[0, GPP] == 95.5
+    assert final_df.loc[0, GPP_ALLOWABLE] == 95.5
+    assert final_df.loc[0, GPP_TOTAL] == 95.5
     assert final_df.loc[0, TEST_COLUMN_NAME] == 'ScenarioA'
-    assert final_df.loc[1, GPP] == 92
+    assert final_df.loc[1, GPP_ALLOWABLE] == 0
+    assert final_df.loc[1, GPP_TOTAL] == -120
     assert final_df.loc[1, TEST_COLUMN_NAME] == 'ScenarioB'
 
 def test_input_validation_not_a_dataframe():

@@ -152,6 +152,8 @@ class FIFOCalculator(BaseTableCalculator):
                 ]
 
                 total_available_before = previous_buys[_INTERNAL_FIFO_AVAILABLE_SHARES].sum()
+                
+                logger.debug(f"Available shares before selling at index {index} (Ticker: {ticker}): {total_available_before:.4f}")
 
                 if shares_to_sell > total_available_before + 1e-9:
                     logger.error(f"Overselling detected for sell at index {index} (Ticker: {ticker}, Date: {row.get(DATETIME)}) . Available: {total_available_before:.4f}, Selling (abs): {shares_to_sell:.4f}")

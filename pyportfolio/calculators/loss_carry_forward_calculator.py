@@ -10,7 +10,7 @@ from collections import deque
 from pyportfolio.calculators.base_calculator import BaseTableCalculator
 
 from pyportfolio.columns import (    
-    YEAR, LOSS_YEAR, LOSS_AMOUNT,
+    YEAR, LOSS_YEAR, LOSS_AMOUNT, GPP_TOTAL,
     GP_INITIAL, GP_POST_COMP, GP_TAXABLE_BASE, GP_LOSS_AVAILABLE, GP_LOSS_CARRIED_FORWARD,
     RCM_INITIAL, RCM_POST_COMP, RCM_TAXABLE_BASE, RCM_LOSS_AVAILABLE, RCM_LOSS_CARRIED_FORWARD,
     TOTAL_TAXABLE_BASE
@@ -89,7 +89,7 @@ class LossCarryForwardCalculator(BaseTableCalculator):
 
             initial_gp = annual_results.loc[year, GP_INITIAL]
             initial_rcm = annual_results.loc[year, RCM_INITIAL]
-            
+            gpp_total = annual_results.loc[year, GPP_TOTAL]
             net_gp = initial_gp
             net_rcm = initial_rcm
 
@@ -124,6 +124,7 @@ class LossCarryForwardCalculator(BaseTableCalculator):
             # 7. Record the detailed analysis data for the year
             tax_analysis_data.append({
                 YEAR: year,
+                GPP_TOTAL: gpp_total,
                 GP_INITIAL: initial_gp,
                 RCM_INITIAL: initial_rcm,
                 GP_LOSS_AVAILABLE: gp_loss_available,

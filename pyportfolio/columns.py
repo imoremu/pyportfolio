@@ -16,8 +16,9 @@ LOSS_YEAR = 'year'
 LOSS_AMOUNT = 'amount'
 
 # GPP (Ganancias y Pérdidas Patrimoniales) Constants
-GPP = 'GPP'
-GP_INITIAL = GPP
+GPP_ALLOWABLE = 'GPP Allowable'
+GPP_TOTAL = 'GPP Total'
+GP_INITIAL = GPP_ALLOWABLE
 GP_POST_COMP = 'GPP Post Compensation'
 GP_TAXABLE_BASE = 'GPP Taxable Base'
 GP_LOSS_AVAILABLE = 'GPP Loss Available'

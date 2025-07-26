@@ -11,7 +11,7 @@ from pyportfolio.columns import DATETIME
 from pyportfolio.studio.portfolio_studio import RESEARCH_IRPF_CAPITAL_GAIN_LOSS, RESEARCH_ANNUAL_IRPF_SUMMARY, \
     RESEARCH_IRPF_MOVEABLE_CAPITAL_INCOME
 
-from pyportfolio.columns import GPP, RCM
+from pyportfolio.columns import GPP_ALLOWABLE, GPP_TOTAL, RCM
 
 import logging
 
@@ -56,7 +56,8 @@ class GeneralIRPFStudent(AbstractDataBasicStudent):
 
         # 3. Group by year and sum the results
         annual_summary = combined_df.groupby('Year')[[
-            GPP,
+            GPP_ALLOWABLE,
+            GPP_TOTAL,
             RCM
         ]].sum(numeric_only=True).fillna(0)
 
