@@ -147,6 +147,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
 
 
         logger.info("Starting IRPF chronological processing loop within calculate_table...")
+        
         # --- Loop using the 0..N-1 index ---
         for index, row in internal_df.iterrows():
             transaction_type = str(row.get(TRANSACTION_TYPE, '')).lower()
@@ -172,12 +173,17 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                 # Process buys based transaction type 'buy'
                 elif transaction_type == TYPE_BUY:
                     logger.debug(f"Processing BUY row {index} (type '{TYPE_BUY}'): {row.get(DATETIME)} / Ticker: {row.get(TICKER)})")
+                    
                     if shares_value <= 1e-9:
-                         logger.warning(f"Row {index} has Transaction Type '{TYPE_BUY}' but non-positive SHARES ({shares_value}). IRPF results set to 0.0, but check data integrity for cost basis calculations.")
+                         logger.warning(f"Row {index} ({row.get(DATETIME)} / Ticker: {row.get(TICKER)}) has Transaction Type '{TYPE_BUY}' but non-positive SHARES ({shares_value}). IRPF results set to 0.0, but check data integrity for cost basis calculations.")
+                    
                     # For IRPF capital gains, a buy itself doesn't generate taxable gain/loss immediately.
+                    
                     internal_df.loc[index, GPP_ALLOWABLE] = 0.0
                     internal_df.loc[index, GPP_TOTAL] = 0.0
+                    
                     # RESULT_DEFERRED_ADJUSTMENT for buy rows is populated at the end from _INTERNAL_DEFERRED_ADJUSTMENT_STATE
+                    
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = 0.0
 
                 else:

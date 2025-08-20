@@ -192,10 +192,14 @@ class FIFOCalculator(BaseTableCalculator):
                 logger.debug(f"Sell row {index}: Proceeds={sell_proceeds:.4f}, Total Cost Basis={total_cost_basis:.4f}, FIFO Gain/Loss={fifo_gain_loss:.4f}")
 
             elif transaction_type == TYPE_BUY:
-                 original_shares_value = row.get(SHARES)
-                 if pd.isna(original_shares_value) or original_shares_value < 1e-9:
-                      logger.warning(f"Buy row at index {index} has non-positive SHARES ({original_shares_value}). Check data integrity.")
-                 pass
+                
+                original_shares_value = row.get(SHARES)
+
+                logger.debug(f"Processing BUY row {index}: {row.get(DATETIME)} / Ticker: {ticker}")
+
+                if pd.isna(original_shares_value) or original_shares_value < 1e-9:
+                    logger.warning(f"Buy row at index {index} ({row.get(DATETIME)} / Ticker: {ticker}) has non-positive SHARES ({original_shares_value}). Check data integrity.")
+                pass
 
         logger.info("Finished FIFO chronological processing loop.")
 

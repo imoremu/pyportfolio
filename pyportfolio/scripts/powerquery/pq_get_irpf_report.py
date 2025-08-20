@@ -97,7 +97,9 @@ def pq_get_irpf_report(dataset: pd.DataFrame) -> pd.DataFrame:
             all_loss_ledgers.append(loss_ledger_df)
 
         final_ledger = pd.concat(all_loss_ledgers).reset_index() if all_loss_ledgers else pd.DataFrame()
-        logger.info("Successfully processed all test scenarios.")
+        
+        logger.info("Get IRPF Report Finished.")        
+        
         return final_ledger
 
     except (FileNotFoundError, ValueError, TypeError, yaml.YAMLError) as e:

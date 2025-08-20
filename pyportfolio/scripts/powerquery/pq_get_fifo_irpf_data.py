@@ -221,5 +221,7 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
         for col in expected_columns:
             if col not in result.columns:
                 result[col] = pd.NA
-                 
+    
+    logger.info("Get FIFO IRPF Data Finished.")
+
     return result
