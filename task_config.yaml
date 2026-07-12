@@ -1,0 +1,8 @@
+# NereoSkills / NereoHub task configuration.
+# Master-level tasks and bugs for this project (see .agents submodule README).
+levels:
+  master:
+    path: docs/plan/
+    folders:
+      tasks: tasks/
+      bugs: bugs/

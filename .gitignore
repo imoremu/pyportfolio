@@ -67,3 +67,9 @@ pip-delete-this-directory.txt
 
 # Otros archivos generados
 *.sqlite3
+
+# NereoSkills: junctions locales de Windows hacia el submodulo .agents.
+# El contenido real vive en .agents (submodulo); estas junctions se recrean
+# por maquina con: powershell -ExecutionPolicy Bypass -File scripts/setup-nereolinks.ps1
+.claude/skills
+.claude/agents
