@@ -127,14 +127,16 @@ def _cost_per_share(shares, price, commission) -> float:
 def _consume(stack, qty) -> float:
     """Consume `qty` shares FIFO from `stack` (list of [available, cost_per_share]).
 
-    Returns the total cost basis consumed. Raises ValueError on overselling.
+    Returns the total cost basis consumed. Tolerates over-consumption (cash-account or
+    unmatched traspaso rows have no real FIFO stock): consumes what exists and warns.
     """
     total_available = sum(lot[0] for lot in stack)
     if qty > total_available + _EPS:
-        raise ValueError(
+        logger.warning(
             f"Carried-cost pre-pass: consuming {qty:.4f} shares exceeds available "
-            f"{total_available:.4f}."
+            f"{total_available:.4f}; consuming the available amount only."
         )
+        qty = total_available
     remaining = qty
     total_cost = 0.0
     while remaining > _EPS and stack:

@@ -98,8 +98,10 @@ def test_traspaso_salida_consumes_lots_without_realised_gain():
     assert result[_INTERNAL_FIFO_AVAILABLE_SHARES].sum() == pytest.approx(30.0)
 
 
-def test_traspaso_salida_overselling_raises():
-    """Transferring out more than available raises, like an oversell."""
+def test_traspaso_salida_overselling_is_tolerated():
+    """Transferring out more than available does NOT abort the calculation: real datasets
+    contain 'Traspaso' rows for cash accounts (no FIFO stock). The available amount is
+    consumed and a warning is logged; genuine fund errors surface at the next real sell."""
     data = {
         DATETIME: ["2023-01-10", "2023-02-10"],
         TICKER: ["FI_ORIG", "FI_ORIG"],
@@ -108,9 +110,10 @@ def test_traspaso_salida_overselling_raises():
         SHARE_PRICE: [10, 10],
         COMISION: [0, 0],
     }
-    with pytest.raises(ValueError) as exc:
-        _run(data)
-    assert "10.0000 are available" in str(exc.value)
+    result = _run(data)  # must not raise
+    # All 10 available shares consumed; transfer-out realises no gain.
+    assert result[_INTERNAL_FIFO_AVAILABLE_SHARES].sum() == pytest.approx(0.0)
+    assert result[RESULT_FIFO_GAIN_LOSS].isna().all()
 
 
 def test_traspaso_entrada_carried_cost_used_as_basis():

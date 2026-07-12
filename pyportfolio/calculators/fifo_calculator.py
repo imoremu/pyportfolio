@@ -180,11 +180,22 @@ class FIFOCalculator(BaseTableCalculator):
             total_available_before = previous_entries[_INTERNAL_FIFO_AVAILABLE_SHARES].sum()
 
             if shares_to_consume > total_available_before + 1e-9:
-                logger.error(f"Overselling detected for {event_label} at index {index} (Ticker: {ticker}, Date: {row.get(DATETIME)}) . Available: {total_available_before:.4f}, Consuming (abs): {shares_to_consume:.4f}")
-                raise ValueError(
-                    f"Cannot sell {shares_to_consume:.4f} shares of {ticker} at {row.get(DATETIME)}; "
-                    f"only {total_available_before:.4f} are available from previous buys."
+                if is_sell:
+                    logger.error(f"Overselling detected for {event_label} at index {index} (Ticker: {ticker}, Date: {row.get(DATETIME)}) . Available: {total_available_before:.4f}, Consuming (abs): {shares_to_consume:.4f}")
+                    raise ValueError(
+                        f"Cannot sell {shares_to_consume:.4f} shares of {ticker} at {row.get(DATETIME)}; "
+                        f"only {total_available_before:.4f} are available from previous buys."
+                    )
+                # Transfer-out short of stock: tolerate. Real datasets contain "Traspaso" rows for
+                # cash accounts (no FIFO stock) and for dividend mirror rows; aborting the whole
+                # calculation for those would break every other product. Consume what exists,
+                # warn, and let genuine fund data errors surface at the next real sell.
+                logger.warning(
+                    f"Transfer-out at index {index} (Ticker: {ticker}, Date: {row.get(DATETIME)}) requests "
+                    f"{shares_to_consume:.4f} but only {total_available_before:.4f} are available. "
+                    f"Consuming the available amount only (cash-account or unmatched traspaso?)."
                 )
+                shares_to_consume = total_available_before
 
             total_cost_basis = 0.0
             remaining_to_consume = shares_to_consume
