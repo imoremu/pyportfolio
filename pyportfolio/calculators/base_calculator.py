@@ -2,6 +2,33 @@ from abc import ABC, abstractmethod
 from typing import Any, Sequence, Union
 import pandas as pd
 
+# --- Shared FIFO share-quantity tolerance -----------------------------------
+# Comparing "shares requested to sell" against "shares available from previous
+# buys" must tolerate floating-point noise: available balances are the result of
+# subtracting many lot consumptions in a single chronological pass, so their
+# accumulated rounding error can exceed a tight absolute epsilon (the former
+# 1e-9 produced false "overselling" aborts on perfectly valid data, e.g. selling
+# 76.2550 shares when 76.25499998 remained). We use an absolute floor plus a
+# magnitude-relative term so the tolerance scales with the balance size, while
+# staying far below one real (fractional) share. See bug B-PYP-0001.
+_SHARE_ABS_TOL = 1e-6
+_SHARE_REL_TOL = 1e-6
+
+
+def share_tolerance(available: float) -> float:
+    """Float-noise tolerance for a share balance of the given magnitude."""
+    return max(_SHARE_ABS_TOL, _SHARE_REL_TOL * abs(available))
+
+
+def is_overselling(requested: float, available: float) -> bool:
+    """True only when ``requested`` exceeds ``available`` beyond rounding noise.
+
+    A genuine oversell (requesting clearly more than is available) returns True;
+    a request that merely differs from the balance by float-rounding error
+    returns False and should be clamped to ``available`` by the caller.
+    """
+    return requested > available + share_tolerance(available)
+
 class BaseRowCalculator(ABC):
     """
     Abstract base class (interface) for calculators that operate row by row.

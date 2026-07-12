@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 import logging
 import numpy as np
 
-from pyportfolio.calculators.base_calculator import BaseTableCalculator
+from pyportfolio.calculators.base_calculator import BaseTableCalculator, is_overselling
 
 from pyportfolio.columns import (
     SHARE_PRICE,
@@ -281,11 +281,13 @@ class IrpfEarningsCalculator(BaseTableCalculator):
 
          total_available_before = previous_buys[_INTERNAL_AVAILABLE_SHARES].sum()
 
-         # Check overselling using the absolute quantity
-         if shares_to_sell > total_available_before + 1e-9:
+         # Check overselling using the absolute quantity (magnitude-aware tolerance)
+         if is_overselling(shares_to_sell, total_available_before):
              logger.error(f"Overselling detected for sell {sell_index} (Ticker: {ticker}, Date: {sell_date}). Available: {total_available_before:.4f}, Selling Qty: {shares_to_sell:.4f}")
              # Consider raising an error or returning specific error code
              return (None, None) # Or raise ValueError
+         # Within float-rounding tolerance: clamp any tiny overshoot to the balance.
+         shares_to_sell = min(shares_to_sell, total_available_before)
 
          total_adjusted_cost_basis = 0.0
          remaining_to_sell = shares_to_sell
@@ -416,10 +418,12 @@ class IrpfEarningsCalculator(BaseTableCalculator):
         ]
 
         total_available = previous_entries[_INTERNAL_AVAILABLE_SHARES].sum()
-        if shares_to_consume > total_available + 1e-9:
+        if is_overselling(shares_to_consume, total_available):
             # FIFOCalculator already raises on overselling; here we only log to avoid masking it.
             logger.error(f"Transfer-out {index} (Ticker: {ticker}) consumes {shares_to_consume:.4f} but only {total_available:.4f} available.")
             return
+        # Within float-rounding tolerance: clamp any tiny overshoot to the balance.
+        shares_to_consume = min(shares_to_consume, total_available)
 
         remaining = shares_to_consume
         blocked_loss_carried = 0.0

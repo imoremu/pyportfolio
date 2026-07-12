@@ -4,7 +4,7 @@ import pandas as pd
 import logging
 import numpy as np
 
-from pyportfolio.calculators.base_calculator import BaseTableCalculator
+from pyportfolio.calculators.base_calculator import BaseTableCalculator, is_overselling
 
 # --- Constants ---
 from pyportfolio.columns import (
@@ -179,7 +179,7 @@ class FIFOCalculator(BaseTableCalculator):
 
             total_available_before = previous_entries[_INTERNAL_FIFO_AVAILABLE_SHARES].sum()
 
-            if shares_to_consume > total_available_before + 1e-9:
+            if is_overselling(shares_to_consume, total_available_before):
                 if is_sell:
                     logger.error(f"Overselling detected for {event_label} at index {index} (Ticker: {ticker}, Date: {row.get(DATETIME)}) . Available: {total_available_before:.4f}, Consuming (abs): {shares_to_consume:.4f}")
                     raise ValueError(
@@ -196,6 +196,10 @@ class FIFOCalculator(BaseTableCalculator):
                     f"Consuming the available amount only (cash-account or unmatched traspaso?)."
                 )
                 shares_to_consume = total_available_before
+            else:
+                # Within float-rounding tolerance: clamp any tiny overshoot so the
+                # origin balance settles cleanly to zero instead of leaving noise.
+                shares_to_consume = min(shares_to_consume, total_available_before)
 
             total_cost_basis = 0.0
             remaining_to_consume = shares_to_consume

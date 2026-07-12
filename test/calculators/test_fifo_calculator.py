@@ -378,4 +378,56 @@ def test_fifo_precission(sample_transactions_fifo_base):
     assert sell_row_result[RESULT_FIFO_GAIN_LOSS] == pytest.approx(expected_gain, rel=1e-9, abs=1e-9)
 
 
+# --- Regression: B-PYP-0001 (float-noise tolerance on overselling guard) ---
+
+def test_fifo_sell_within_rounding_tolerance_does_not_raise(sample_transactions_fifo_base):
+    """B-PYP-0001: selling a quantity that exceeds the available balance only by
+    rounding noise (< tolerance) must NOT raise; it consumes the available amount.
+
+    Reproduces the reported case: 76.2550 requested, 76.2549999 available
+    (deviation 1e-7). The old absolute 1e-9 tolerance falsely flagged this as
+    overselling and aborted the whole calculation on valid data.
+    """
+    data = {
+        DATETIME: ['2023-01-10', '2023-02-15'],
+        TICKER: ['ING', 'ING'],
+        TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL],
+        SHARES: [76.2549999, -76.2550],   # deviation 1e-7, well below tolerance
+        SHARE_PRICE: [100.0, 110.0],
+        COMISION: [0.0, 0.0],
+    }
+
+    # Must not raise despite requested > available by float-rounding noise.
+    processed_df = run_fifo_calc_direct(data, sample_transactions_fifo_base)
+
+    sell_row_result = processed_df[processed_df[TRANSACTION_TYPE] == TYPE_SELL].iloc[0]
+    # A finite gain/loss is produced (not NaN) => the sell was processed.
+    assert pd.notna(sell_row_result[RESULT_FIFO_GAIN_LOSS])
+    # Proceeds are clamped to the available balance (76.2549999), not 76.2550.
+    # Gain = 110 * 76.2549999 - (100 * 76.2549999) = 10 * 76.2549999
+    assert sell_row_result[RESULT_FIFO_GAIN_LOSS] == pytest.approx(10 * 76.2549999, rel=1e-9, abs=1e-6)
+
+
+def test_fifo_genuine_oversell_beyond_tolerance_still_raises(sample_transactions_fifo_base):
+    """B-PYP-0001: a real oversell (beyond the rounding tolerance) must still raise."""
+    data = {
+        DATETIME: ['2023-01-10', '2023-02-15'],
+        TICKER: ['ING', 'ING'],
+        TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL],
+        SHARES: [76.2550, -76.3000],   # 0.045 short: a genuine data error
+        SHARE_PRICE: [100.0, 110.0],
+        COMISION: [0.0, 0.0],
+    }
+    df_input = pd.DataFrame(data)
+    df_input[DATETIME] = pd.to_datetime(df_input[DATETIME], format='mixed', dayfirst=True)
+    df_input[SHARES] = df_input[SHARES].astype(float)
+    df_input[SHARE_PRICE] = df_input[SHARE_PRICE].astype(float)
+    df_input[COMISION] = df_input[COMISION].astype(float)
+    transactions_input = pd.concat([sample_transactions_fifo_base, df_input], ignore_index=True)
+
+    with pytest.raises(ValueError) as exc_info:
+        FIFOCalculator().calculate_table(transactions_input)
+    assert "Cannot sell" in str(exc_info.value)
+
+
     
