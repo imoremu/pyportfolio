@@ -2,7 +2,7 @@ import pandas as pd
 import logging
 from typing import List, Optional
 
-from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER, GPP
+from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER
 
 from pyportfolio.transaction_manager import TransactionManager
 from pyportfolio.calculators.fifo_calculator import FIFOCalculator, RESULT_FIFO_GAIN_LOSS
@@ -10,7 +10,8 @@ from pyportfolio.calculators.transfer_cost_carry import apply_transfer_carried_c
 from pyportfolio.calculators.irpf_moveable_capital_income_calculator import IRPFMoveableCapitalIncomeCalculator
 from pyportfolio.calculators.irpf_earnings_calculator import (
     IrpfEarningsCalculator,
-    GPP,
+    GPP_ALLOWABLE,
+    GPP_TOTAL,
     RESULT_DEFERRED_ADJUSTMENT,
     RESULT_TRANSFER_BLOCKED_LOSS
 )
@@ -27,7 +28,7 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
 
     fifo_result_column = RESULT_FIFO_GAIN_LOSS
     dividend_result_column = RCM
-    irpf_result_columns = [GPP, RESULT_DEFERRED_ADJUSTMENT]
+    irpf_result_columns = [GPP_ALLOWABLE, GPP_TOTAL, RESULT_DEFERRED_ADJUSTMENT, RESULT_TRANSFER_BLOCKED_LOSS]
     calculated_columns = [fifo_result_column, dividend_result_column] + irpf_result_columns
     fifo_result_dtype = 'Float64'
     dividend_result_dtype = 'Float64' 
@@ -230,5 +231,7 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
         for col in expected_columns:
             if col not in result.columns:
                 result[col] = pd.NA
-                 
+    
+    logger.info("Get FIFO IRPF Data Finished.")
+
     return result

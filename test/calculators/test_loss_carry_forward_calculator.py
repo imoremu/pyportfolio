@@ -11,7 +11,7 @@ import unittest
 
 from pyportfolio.calculators.loss_carry_forward_calculator import (
     LossCarryForwardCalculator,
-    YEAR, GP_INITIAL, GP_POST_COMP, GP_TAXABLE_BASE, GP_LOSS_AVAILABLE, GP_LOSS_CARRIED_FORWARD,
+    YEAR, GP_INITIAL, GP_POST_COMP, GPP_TOTAL, GP_TAXABLE_BASE, GP_LOSS_AVAILABLE, GP_LOSS_CARRIED_FORWARD,
     RCM_INITIAL, RCM_POST_COMP, RCM_TAXABLE_BASE, RCM_LOSS_AVAILABLE, RCM_LOSS_CARRIED_FORWARD,
     TOTAL_TAXABLE_BASE
 )
@@ -40,17 +40,21 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
 
     def test_simple_gp_loss_carryforward(self):
         """Test a simple G&P loss being compensated in the next year."""
-        data = {YEAR: [2020, 2021], GP_INITIAL: [-1000, 1500], RCM_INITIAL: [0, 0]}
+        data = {YEAR: [2020, 2021], GP_INITIAL: [-1000, 1500], RCM_INITIAL: [0, 0], GPP_TOTAL: [-1200, 1500]}
         df = pd.DataFrame(data).set_index(YEAR)
         calculator = LossCarryForwardCalculator()
         analysis_table = calculator.calculate_table(df)
         
         # Check 2020 results
+        self.assertAlmostEqual(analysis_table.loc[2020, GP_INITIAL], -1000)
+        self.assertAlmostEqual(analysis_table.loc[2020, GPP_TOTAL], -1200)
         self.assertAlmostEqual(analysis_table.loc[2020, GP_LOSS_AVAILABLE], 0)
         self.assertAlmostEqual(analysis_table.loc[2020, GP_POST_COMP], -1000)
         self.assertAlmostEqual(analysis_table.loc[2020, GP_LOSS_CARRIED_FORWARD], 1000)
 
         # Check 2021 results
+        self.assertAlmostEqual(analysis_table.loc[2021, GP_INITIAL], 1500)
+        self.assertAlmostEqual(analysis_table.loc[2021, GPP_TOTAL], 1500)
         self.assertAlmostEqual(analysis_table.loc[2021, GP_LOSS_AVAILABLE], 1000)
         self.assertAlmostEqual(analysis_table.loc[2021, GP_POST_COMP], 500)
         self.assertAlmostEqual(analysis_table.loc[2021, GP_TAXABLE_BASE], 500)
@@ -58,7 +62,7 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
 
     def test_simple_rcm_loss_carryforward(self):
         """Test a simple RCM loss being compensated in the next year."""
-        data = {YEAR: [2020, 2021], GP_INITIAL: [0, 0], RCM_INITIAL: [-500, 2000]}
+        data = {YEAR: [2020, 2021], GP_INITIAL: [0, 0], RCM_INITIAL: [-500, 2000], GPP_TOTAL: [0, 0]}
         df = pd.DataFrame(data).set_index(YEAR)
         calculator = LossCarryForwardCalculator()
         analysis_table = calculator.calculate_table(df)
@@ -76,7 +80,7 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
 
     def test_last_valid_year_of_loss(self):
         """Test that a loss is available on its 4th and final year."""
-        data = {YEAR: [2018, 2022, 2023], GP_INITIAL: [-1000, 800, 0], RCM_INITIAL: [0, 0, 0]}
+        data = {YEAR: [2018, 2022, 2023], GP_INITIAL: [-1000, 800, 0], RCM_INITIAL: [0, 0, 0], GPP_TOTAL: [-1000, 800, 0]}
         df = pd.DataFrame(data).set_index(YEAR)
         calculator = LossCarryForwardCalculator()
         analysis_table = calculator.calculate_table(df)
@@ -99,7 +103,7 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
 
     def test_loss_expiration(self):
         """Test that a loss expires after 4 years."""
-        data = {YEAR: [2018, 2023], GP_INITIAL: [-1000, 500], RCM_INITIAL: [0, 0]}
+        data = {YEAR: [2018, 2023], GP_INITIAL: [-1000, 500], RCM_INITIAL: [0, 0], GPP_TOTAL: [-1000, 500]}
         df = pd.DataFrame(data).set_index(YEAR)
         calculator = LossCarryForwardCalculator()
         analysis_table = calculator.calculate_table(df)
@@ -111,7 +115,7 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
 
     def test_inter_category_compensation_from_gp_to_rcm(self):
         """Test G&P loss compensating an RCM gain (25% rule)."""
-        data = {YEAR: [2020], GP_INITIAL: [-5000], RCM_INITIAL: [16000]}
+        data = {YEAR: [2020], GP_INITIAL: [-5000], RCM_INITIAL: [16000], GPP_TOTAL: [-5000]}
         df = pd.DataFrame(data).set_index(YEAR)
         calculator = LossCarryForwardCalculator()
         analysis_table = calculator.calculate_table(df)
@@ -125,7 +129,7 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
         
     def test_inter_category_compensation_from_rcm_to_gp(self):
         """Test RCM loss compensating a G&P gain (25% rule)."""
-        data = {YEAR: [2020], GP_INITIAL: [20000], RCM_INITIAL: [-3000]}
+        data = {YEAR: [2020], GP_INITIAL: [20000], RCM_INITIAL: [-3000], GPP_TOTAL: [20000]}
         df = pd.DataFrame(data).set_index(YEAR)
         calculator = LossCarryForwardCalculator()
         analysis_table = calculator.calculate_table(df)
@@ -139,7 +143,7 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
 
     def test_total_taxable_base_with_both_gains(self):
         """Test Total_Taxable_Base when both G&P and RCM are positive."""
-        data = {YEAR: [2020, 2021], GP_INITIAL: [-1000, 5000], RCM_INITIAL: [0, 2000]}
+        data = {YEAR: [2020, 2021], GP_INITIAL: [-1000, 5000], RCM_INITIAL: [0, 2000], GPP_TOTAL: [-1000, 5000]}
         df = pd.DataFrame(data).set_index(YEAR)
         calculator = LossCarryForwardCalculator()
         analysis_table = calculator.calculate_table(df)
@@ -152,7 +156,7 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
 
     def test_non_consecutive_years(self):
         """Test the calculator with gaps in the years."""
-        data = {YEAR: [2018, 2021], GP_INITIAL: [-1000, 1200], RCM_INITIAL: [0, 0]}
+        data = {YEAR: [2018, 2021], GP_INITIAL: [-1000, 1200], RCM_INITIAL: [0, 0], GPP_TOTAL: [-1000, 1200]}
         df = pd.DataFrame(data).set_index(YEAR)
         calculator = LossCarryForwardCalculator()
         analysis_table = calculator.calculate_table(df)
@@ -174,7 +178,8 @@ class TestLossCarryForwardCalculator(unittest.TestCase):
         data = {
             YEAR: [2020, 2021, 2022],
             GP_INITIAL: [-5000, 0, 0],
-            RCM_INITIAL: [16000, 500, 0]
+            RCM_INITIAL: [16000, 500, 0],
+            GPP_TOTAL: [-5000, 0, 0]
         }
         df = pd.DataFrame(data).set_index(YEAR)
         calculator = LossCarryForwardCalculator()

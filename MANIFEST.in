@@ -1,5 +1,6 @@
 include README.md
 include LICENSE
+recursive-include pyportfolio *.py
 graft pyportfolio/config
 graft pyportfolio/data
 

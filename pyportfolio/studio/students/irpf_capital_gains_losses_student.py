@@ -9,7 +9,7 @@ from pyportfolio.transaction_manager import TransactionManager
 
 from pyportfolio.studio.portfolio_studio import PORTFOLIO_INITIAL_DATA, RESEARCH_FIFO_EARNINGS
 
-from pyportfolio.columns import GPP, RESULT_DEFERRED_ADJUSTMENT
+from pyportfolio.columns import GPP_ALLOWABLE, RESULT_DEFERRED_ADJUSTMENT
 
 
 from typing import Any
@@ -76,7 +76,7 @@ class IRPFCapitalGainsLossesStudent(AbstractDataBasicStudent):
 
         # If result is empty, return a empty dataframe with all needed columns
         if result.empty:
-            result = pd.DataFrame(columns=[GPP, RESULT_DEFERRED_ADJUSTMENT])
+            result = pd.DataFrame(columns=[GPP_ALLOWABLE, RESULT_DEFERRED_ADJUSTMENT])
 
 
         return result

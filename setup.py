@@ -11,7 +11,8 @@ setuptools.setup(
     description="Una librería para la gestión y cálculo de carteras de inversión.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/imoremu/pyportfolio", 
+    url="https://github.com/imoremu/pyportfolio",     
+    packages=setuptools.find_packages(include=["pyportfolio*"]),    
     include_package_data=True,    
     classifiers=[        
         "Programming Language :: Python :: 3",

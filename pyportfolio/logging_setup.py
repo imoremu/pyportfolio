@@ -19,12 +19,12 @@ def setup_logging(config_path=_DEFAULT_CONFIG_PATH):
                 logging.info("Successfully applied dictConfig.") 
                 logging.getLogger().info("Logging configured successfully from YAML.")
             except Exception as e:
-                logging.error(f"ERROR loading/applying logging config from {path}: {e}", file=sys.stderr) # Add print
+                logging.error(f"ERROR loading/applying logging config from {path}: {e}")
                 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
                 logging.error(f"Error loading logging config from {path}: {e}. Falling back to basicConfig.")
     else:
-        logging.warning(f"WARNING: Logging config file not found at {path}. Falling back to basicConfig.", file=sys.stderr) # Add print
+        logging.warning(f"WARNING: Logging config file not found at {path}. Falling back to basicConfig.")
         logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         logging.warning(f"Logging configuration file not found at {path}. Falling back to basicConfig.")

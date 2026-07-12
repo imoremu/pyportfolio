@@ -16,7 +16,8 @@ from pyportfolio.columns import (
     TYPE_BUY,
     TYPE_SELL,
     TYPE_TRANSFER,
-    GPP,
+    GPP_ALLOWABLE,
+    GPP_TOTAL,
     RESULT_DEFERRED_ADJUSTMENT
 )
 
@@ -26,7 +27,7 @@ from pyportfolio.columns import (
 # modelled (see Phase D); this flags the cases so they are visible (e.g. coloured in Power BI).
 RESULT_TRANSFER_BLOCKED_LOSS = "Traspaso - Pérdida Bloqueada Trasladada"
 
-_RESULT_COLUMNS = [GPP, RESULT_DEFERRED_ADJUSTMENT, RESULT_TRANSFER_BLOCKED_LOSS]
+_RESULT_COLUMNS = [GPP_ALLOWABLE, GPP_TOTAL, RESULT_DEFERRED_ADJUSTMENT, RESULT_TRANSFER_BLOCKED_LOSS]
 
 _INTERNAL_AVAILABLE_SHARES = '_IrpfAvailableShares'
 _INTERNAL_DEFERRED_ADJUSTMENT_STATE = '_IrpfDeferredAdjustmentState'
@@ -128,10 +129,12 @@ class IrpfEarningsCalculator(BaseTableCalculator):
         internal_df[_INTERNAL_ORIGINAL_COST_PER_SHARE_WITH_COMMISSION] = 0.0
         internal_df[_INTERNAL_BLOCKING_CAPACITY_REMAINING] = 0.0
 
-        internal_df[GPP] = pd.NA
+        internal_df[GPP_ALLOWABLE] = pd.NA
+        internal_df[GPP_TOTAL] = pd.NA
         internal_df[RESULT_DEFERRED_ADJUSTMENT] = pd.NA
         internal_df[RESULT_TRANSFER_BLOCKED_LOSS] = pd.NA
-        internal_df[GPP] = internal_df[GPP].astype('Float64')
+        internal_df[GPP_ALLOWABLE] = internal_df[GPP_ALLOWABLE].astype('Float64')
+        internal_df[GPP_TOTAL] = internal_df[GPP_TOTAL].astype('Float64')
         internal_df[RESULT_DEFERRED_ADJUSTMENT] = internal_df[RESULT_DEFERRED_ADJUSTMENT].astype('Float64')
         internal_df[RESULT_TRANSFER_BLOCKED_LOSS] = internal_df[RESULT_TRANSFER_BLOCKED_LOSS].astype('Float64')
         # ---
@@ -156,6 +159,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
 
 
         logger.info("Starting IRPF chronological processing loop within calculate_table...")
+        
         # --- Loop using the 0..N-1 index ---
         for index, row in internal_df.iterrows():
             transaction_type = str(row.get(TRANSACTION_TYPE, '')).lower()
@@ -170,20 +174,27 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                     # _process_sell_and_update_buys handles share value validation (e.g., non-negative shares for a sell)
                     result_tuple = self._process_sell_and_update_buys(row, index, internal_df)
                     if result_tuple is not None:
-                        internal_df.loc[index, GPP] = result_tuple[0]
-                        internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = result_tuple[1] # Should be 0.0 for sells
+                        internal_df.loc[index, GPP_ALLOWABLE] = result_tuple[0]
+                        internal_df.loc[index, GPP_TOTAL] = result_tuple[1]
+                        internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = 0 # Should be 0.0 for sells
                     else: # Indicates an issue within _process_sell_and_update_buys (e.g. invalid sell data)
-                        internal_df.loc[index, GPP] = None
+                        internal_df.loc[index, GPP_ALLOWABLE] = None
+                        internal_df.loc[index, GPP_TOTAL] = None
                         internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
 
                 # Process buys based transaction type 'buy'
                 elif transaction_type == TYPE_BUY:
                     logger.debug(f"Processing BUY row {index} (type '{TYPE_BUY}'): {row.get(DATETIME)} / Ticker: {row.get(TICKER)})")
+                    
                     if shares_value <= 1e-9:
-                         logger.warning(f"Row {index} has Transaction Type '{TYPE_BUY}' but non-positive SHARES ({shares_value}). IRPF results set to 0.0, but check data integrity for cost basis calculations.")
+                         logger.warning(f"Row {index} ({row.get(DATETIME)} / Ticker: {row.get(TICKER)}) has Transaction Type '{TYPE_BUY}' but non-positive SHARES ({shares_value}). IRPF results set to 0.0, but check data integrity for cost basis calculations.")
+                    
                     # For IRPF capital gains, a buy itself doesn't generate taxable gain/loss immediately.
-                    internal_df.loc[index, GPP] = 0.0
+                    internal_df.loc[index, GPP_ALLOWABLE] = 0.0
+                    internal_df.loc[index, GPP_TOTAL] = 0.0
+
                     # RESULT_DEFERRED_ADJUSTMENT for buy rows is populated at the end from _INTERNAL_DEFERRED_ADJUSTMENT_STATE
+                    
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = 0.0
 
                 elif transaction_type == TYPE_TRANSFER:
@@ -193,19 +204,22 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                     logger.debug(f"Processing TRANSFER row {index} (type '{TYPE_TRANSFER}'): {row.get(DATETIME)} / Ticker: {row.get(TICKER)}, Shares: {shares_value})")
                     if shares_value < -1e-9:
                         self._consume_transfer_out(row, index, internal_df)
-                    internal_df.loc[index, GPP] = None
+                    internal_df.loc[index, GPP_ALLOWABLE] = None
+                    internal_df.loc[index, GPP_TOTAL] = None
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
 
                 else:
                     # Handles transaction types that are not explicitly TYPE_SELL or TYPE_BUY (e.g., 'dividend')
                     # Also handles rows with ambiguous shares if type is not BUY/SELL.
                     logger.debug(f"Ignoring row {index} for IRPF gain/loss calculation as transaction type '{transaction_type}' is not '{TYPE_SELL}' or '{TYPE_BUY}'. Shares: {shares_value}. Results set to None.")
-                    internal_df.loc[index, GPP] = None
+                    internal_df.loc[index, GPP_ALLOWABLE] = None
+                    internal_df.loc[index, GPP_TOTAL] = None
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
 
             except Exception as e:
                  logger.error(f"Error processing row {index} during IRPF calculation: {e}. Row: {row.to_dict()}", exc_info=True)
-                 internal_df.loc[index, GPP] = None
+                 internal_df.loc[index, GPP_ALLOWABLE] = None
+                 internal_df.loc[index, GPP_TOTAL] = None
                  internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
         # --- End Loop ---
 
@@ -238,7 +252,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
          """
          Processes a sell transaction (negative SHARES): calculates adjusted FIFO gain/loss,
          handles loss deferral by finding blockers and updating their state.
-         Returns the (allowable_gain_loss, 0.0) tuple for the sell row.
+         Returns the (allowable_gain_loss, gain_loss) tuple for the sell row.
          Uses the 0..N-1 index ('sell_index') for internal operations on 'internal_df'.
          """
          ticker = sell_row.get(TICKER)
@@ -315,7 +329,7 @@ class IrpfEarningsCalculator(BaseTableCalculator):
 
              if repurchases.empty:
                  logger.debug(f"Sell {sell_index}: No repurchases found. Allowable loss = {adjusted_gain_loss:.2f}")
-                 return (adjusted_gain_loss, 0.0)
+                 return (adjusted_gain_loss, adjusted_gain_loss)
              else:
                  # repurchases DataFrame still has 0..N-1 index
                  sorted_repurchases = repurchases.sort_values(by=DATETIME)
@@ -370,13 +384,13 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                  allowable_loss = adjusted_gain_loss + total_deferred_loss_amount
                  allowable_loss = min(allowable_loss, 0.0) # Ensure loss doesn't become positive due to float issues
                  logger.debug(f"Sell {sell_index}: Finished blocking. ActualTotalBlocked={actual_shares_blocked_for_this_sell:.2f}, TotalDeferredAmount={total_deferred_loss_amount:.2f}, Final Allowable Loss={allowable_loss:.2f}")
-                 return (allowable_loss, 0.0)
+                 return (allowable_loss, adjusted_gain_loss)
 
          else: # Gain or zero
              # Ensure gain is not negative due to float issues
              adjusted_gain_loss = max(adjusted_gain_loss, 0.0)
              logger.debug(f"Sell {sell_index}: Gain calculated = {adjusted_gain_loss:.2f}")
-             return (adjusted_gain_loss, 0.0)
+             return (adjusted_gain_loss, adjusted_gain_loss)
 
     def _consume_transfer_out(self, row: pd.Series, index: int, internal_df: pd.DataFrame) -> None:
         """

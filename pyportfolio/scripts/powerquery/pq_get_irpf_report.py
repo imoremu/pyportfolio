@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Dict, List
 import logging
 
+import sys
+
 # Assuming the following imports are available in the project
 from pyportfolio.studio.portfolio_studio import PortfolioStudio
 from pydatastudio.data.studio.students.student_factory import StudentFactory
@@ -63,6 +65,7 @@ def pq_get_irpf_report(dataset: pd.DataFrame) -> pd.DataFrame:
     a comprehensive IRPF report.
     """
     logger = logging.getLogger(__name__)
+    
     try:
         # --- Configuration is now loaded via the helper method ---
         studio_config = _load_studio_config()
@@ -94,7 +97,9 @@ def pq_get_irpf_report(dataset: pd.DataFrame) -> pd.DataFrame:
             all_loss_ledgers.append(loss_ledger_df)
 
         final_ledger = pd.concat(all_loss_ledgers).reset_index() if all_loss_ledgers else pd.DataFrame()
-        logger.info("Successfully processed all test scenarios.")
+        
+        logger.info("Get IRPF Report Finished.")        
+        
         return final_ledger
 
     except (FileNotFoundError, ValueError, TypeError, yaml.YAMLError) as e:
@@ -103,3 +108,19 @@ def pq_get_irpf_report(dataset: pd.DataFrame) -> pd.DataFrame:
     except Exception as e:
         logger.error(f"A critical error occurred during processing: {e}", exc_info=True)
         return pd.DataFrame({'Error': [str(e)]})
+    
+# Main function to test the script
+if __name__ == "__main__":
+
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    # Main accept a parameter with the path to the input CSV file
+    data_from_csv = pd.read_csv(sys.argv[1], encoding="cp1252", sep=";", decimal=",") if len(sys.argv) > 1 else []
+
+    if data_from_csv.empty:
+        logging.warning("No data provided. Please provide a CSV file with the portfolio data.")
+        sys.exit(1)
+
+    report = pq_get_irpf_report(data_from_csv)
+
+    logging.info(report)
