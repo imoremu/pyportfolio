@@ -1,11 +1,10 @@
 # pyportfolio/calculators/fifo_calculator.py
 
 import pandas as pd
-from typing import Optional
 import logging
 import numpy as np
 
-from .base_calculator import BaseTableCalculator
+from pyportfolio.calculators.base_calculator import BaseTableCalculator
 
 # --- Constants ---
 from pyportfolio.columns import (
@@ -16,7 +15,8 @@ from pyportfolio.columns import (
     DATETIME,
     COMISION, # Added COMISION
     TYPE_BUY,
-    TYPE_SELL
+    TYPE_SELL,
+    TYPE_TRANSFER
 )
 
 RESULT_FIFO_GAIN_LOSS = "FIFO Beneficio / Pérdida"
@@ -110,99 +110,125 @@ class FIFOCalculator(BaseTableCalculator):
         internal_df[RESULT_FIFO_GAIN_LOSS] = pd.NA
         internal_df[RESULT_FIFO_GAIN_LOSS] = internal_df[RESULT_FIFO_GAIN_LOSS].astype('Float64')
 
-        # Initialize available shares and calculate cost basis for buys
-        buy_mask = (internal_df[TRANSACTION_TYPE].str.lower() == TYPE_BUY) & (internal_df[SHARES] > 1e-9)
+        # Initialize available shares and cost basis for every row that ADDS shares to
+        # the FIFO stock: buys and transfer-ins (traspaso with positive shares).
+        # For a transfer-in, SHARE_PRICE is expected to carry the cost basis per share
+        # brought over from the origin fund (set by the global carried-cost pre-pass);
+        # commissions are normally 0 on a traspaso.
+        type_lower = internal_df[TRANSACTION_TYPE].str.lower()
+        entry_mask = type_lower.isin([TYPE_BUY, TYPE_TRANSFER]) & (internal_df[SHARES] > 1e-9)
 
-        # Calculate total cost (price*shares + commission) for buys
-        total_cost_buy = (internal_df.loc[buy_mask, SHARES] * internal_df.loc[buy_mask, SHARE_PRICE]) + internal_df.loc[buy_mask, COMISION]
+        # Calculate total cost (price*shares + commission) for entries
+        total_cost_entry = (internal_df.loc[entry_mask, SHARES] * internal_df.loc[entry_mask, SHARE_PRICE]) + internal_df.loc[entry_mask, COMISION]
 
         # Calculate cost per share including commission, handle potential division by zero
-        cost_per_share_buy = total_cost_buy / internal_df.loc[buy_mask, SHARES]
-        cost_per_share_buy = cost_per_share_buy.replace([np.inf, -np.inf], 0).fillna(0) # Handle division by zero or NaN shares
+        cost_per_share_entry = total_cost_entry / internal_df.loc[entry_mask, SHARES]
+        cost_per_share_entry = cost_per_share_entry.replace([np.inf, -np.inf], 0).fillna(0) # Handle division by zero or NaN shares
 
-        internal_df.loc[buy_mask, _INTERNAL_FIFO_AVAILABLE_SHARES] = internal_df.loc[buy_mask, SHARES]
-        internal_df.loc[buy_mask, _INTERNAL_FIFO_COST_PER_SHARE_WITH_COMMISSION] = cost_per_share_buy
+        internal_df.loc[entry_mask, _INTERNAL_FIFO_AVAILABLE_SHARES] = internal_df.loc[entry_mask, SHARES]
+        internal_df.loc[entry_mask, _INTERNAL_FIFO_COST_PER_SHARE_WITH_COMMISSION] = cost_per_share_entry
 
         logger.info("Starting FIFO chronological processing loop within calculate_table...")
 
         for index, row in internal_df.iterrows():
             transaction_type = str(row.get(TRANSACTION_TYPE, '')).lower()
             ticker = row.get(TICKER)
+            original_shares_value = row.get(SHARES)
 
-            if transaction_type == TYPE_SELL:
-                logger.debug(f"Processing SELL row {index}: {row.get(DATETIME)} / Ticker: {ticker}")
-                original_shares_value = row.get(SHARES)
-                sell_price = row.get(SHARE_PRICE)
-                commission_sell = row.get(COMISION, 0.0) # Default to 0 if missing
+            # Consuming events remove shares from the FIFO stock:
+            #   - a sell (venta), which realises a gain/loss, and
+            #   - a transfer-out (traspaso with negative shares), which consumes lots
+            #     (carrying their cost forward) but realises NO gain (deferred taxation).
+            is_sell = transaction_type == TYPE_SELL
+            is_transfer_out = (
+                transaction_type == TYPE_TRANSFER
+                and pd.notna(original_shares_value)
+                and original_shares_value < -1e-9
+            )
 
-                shares_to_sell = np.abs(original_shares_value) if pd.notna(original_shares_value) else 0.0
+            if not (is_sell or is_transfer_out):
+                # Buys and transfer-ins were already added to the stock above; nothing to consume.
+                if transaction_type == TYPE_BUY and (pd.isna(original_shares_value) or original_shares_value < 1e-9):
+                    logger.warning(f"Buy row at index {index} has non-positive SHARES ({original_shares_value}). Check data integrity.")
+                continue
 
-                # Validate essential data for a sell
-                if pd.isna(ticker) or pd.isna(original_shares_value) or original_shares_value >= -1e-9 or pd.isna(sell_price):
-                    logger.warning(
-                        f"Sell row at index {index} missing essential data or has non-negative SHARES. "
-                        f"(Ticker: {ticker}, Shares: {original_shares_value}, Price: {sell_price}). Skipping."
-                    )
-                    continue
+            event_label = "SELL" if is_sell else "TRANSFER-OUT"
+            logger.debug(f"Processing {event_label} row {index}: {row.get(DATETIME)} / Ticker: {ticker}")
 
-                previous_buys = internal_df[
-                    (internal_df.index < index) &
-                    (internal_df[TICKER] == ticker) &
-                    (internal_df[TRANSACTION_TYPE].str.lower() == TYPE_BUY) &
-                    (internal_df[_INTERNAL_FIFO_AVAILABLE_SHARES] > 1e-9)
-                ]
+            shares_to_consume = np.abs(original_shares_value) if pd.notna(original_shares_value) else 0.0
+            sell_price = row.get(SHARE_PRICE)
 
-                total_available_before = previous_buys[_INTERNAL_FIFO_AVAILABLE_SHARES].sum()
+            # Validate essential data for a consuming event
+            if pd.isna(ticker) or pd.isna(original_shares_value) or original_shares_value >= -1e-9:
+                logger.warning(
+                    f"{event_label} row at index {index} missing essential data or has non-negative SHARES. "
+                    f"(Ticker: {ticker}, Shares: {original_shares_value}). Skipping."
+                )
+                continue
+            if is_sell and pd.isna(sell_price):
+                logger.warning(f"Sell row at index {index} missing price. (Ticker: {ticker}). Skipping.")
+                continue
 
-                if shares_to_sell > total_available_before + 1e-9:
-                    logger.error(f"Overselling detected for sell at index {index} (Ticker: {ticker}, Date: {row.get(DATETIME)}) . Available: {total_available_before:.4f}, Selling (abs): {shares_to_sell:.4f}")
-                    raise ValueError(
-                        f"Cannot sell {shares_to_sell:.4f} shares of {ticker} at {row.get(DATETIME)}; "
-                        f"only {total_available_before:.4f} are available from previous buys."
-                    )
+            # Available lots come from previous buys AND transfer-ins of the same ticker.
+            previous_entries = internal_df[
+                (internal_df.index < index) &
+                (internal_df[TICKER] == ticker) &
+                (internal_df[TRANSACTION_TYPE].str.lower().isin([TYPE_BUY, TYPE_TRANSFER])) &
+                (internal_df[_INTERNAL_FIFO_AVAILABLE_SHARES] > 1e-9)
+            ]
 
-                total_cost_basis = 0.0
-                remaining_to_sell = shares_to_sell
+            total_available_before = previous_entries[_INTERNAL_FIFO_AVAILABLE_SHARES].sum()
 
-                for buy_idx in previous_buys.index:
-                    available_in_lot = internal_df.at[buy_idx, _INTERNAL_FIFO_AVAILABLE_SHARES]
-                    cost_per_share_with_commission = internal_df.at[buy_idx, _INTERNAL_FIFO_COST_PER_SHARE_WITH_COMMISSION]
+            if shares_to_consume > total_available_before + 1e-9:
+                logger.error(f"Overselling detected for {event_label} at index {index} (Ticker: {ticker}, Date: {row.get(DATETIME)}) . Available: {total_available_before:.4f}, Consuming (abs): {shares_to_consume:.4f}")
+                raise ValueError(
+                    f"Cannot sell {shares_to_consume:.4f} shares of {ticker} at {row.get(DATETIME)}; "
+                    f"only {total_available_before:.4f} are available from previous buys."
+                )
 
-                    if pd.isna(cost_per_share_with_commission):
-                         logger.error(f"NaN cost per share in buy lot {buy_idx} when processing sell {index}.")
-                         raise ValueError(f"Found buy lot (index {buy_idx}) with NaN cost basis needed for FIFO calculation.")
+            total_cost_basis = 0.0
+            remaining_to_consume = shares_to_consume
 
-                    consume_from_lot = min(available_in_lot, remaining_to_sell)
-                    total_cost_basis += consume_from_lot * cost_per_share_with_commission
+            for buy_idx in previous_entries.index:
+                available_in_lot = internal_df.at[buy_idx, _INTERNAL_FIFO_AVAILABLE_SHARES]
+                cost_per_share_with_commission = internal_df.at[buy_idx, _INTERNAL_FIFO_COST_PER_SHARE_WITH_COMMISSION]
 
-                    internal_df.at[buy_idx, _INTERNAL_FIFO_AVAILABLE_SHARES] -= consume_from_lot
-                    remaining_to_sell -= consume_from_lot
+                if pd.isna(cost_per_share_with_commission):
+                     logger.error(f"NaN cost per share in lot {buy_idx} when processing {event_label} {index}.")
+                     raise ValueError(f"Found entry lot (index {buy_idx}) with NaN cost basis needed for FIFO calculation.")
 
-                    logger.debug(f"  Consumed {consume_from_lot:.4f} from buy lot {buy_idx} @ cost {cost_per_share_with_commission:.4f}. Remaining to sell: {remaining_to_sell:.4f}. Lot available now: {internal_df.at[buy_idx, _INTERNAL_FIFO_AVAILABLE_SHARES]:.4f}")
+                consume_from_lot = min(available_in_lot, remaining_to_consume)
+                total_cost_basis += consume_from_lot * cost_per_share_with_commission
 
-                    if remaining_to_sell < 1e-9:
-                        break
+                internal_df.at[buy_idx, _INTERNAL_FIFO_AVAILABLE_SHARES] -= consume_from_lot
+                remaining_to_consume -= consume_from_lot
 
+                logger.debug(f"  Consumed {consume_from_lot:.4f} from lot {buy_idx} @ cost {cost_per_share_with_commission:.4f}. Remaining: {remaining_to_consume:.4f}. Lot available now: {internal_df.at[buy_idx, _INTERNAL_FIFO_AVAILABLE_SHARES]:.4f}")
+
+                if remaining_to_consume < 1e-9:
+                    break
+
+            if is_sell:
                 # Calculate proceeds subtracting the (assumed positive) sell commission
-                sell_proceeds = (sell_price * shares_to_sell) - commission_sell
-
+                commission_sell = row.get(COMISION, 0.0)
+                sell_proceeds = (sell_price * shares_to_consume) - commission_sell
                 fifo_gain_loss = sell_proceeds - total_cost_basis
                 internal_df.loc[index, RESULT_FIFO_GAIN_LOSS] = fifo_gain_loss
                 logger.debug(f"Sell row {index}: Proceeds={sell_proceeds:.4f}, Total Cost Basis={total_cost_basis:.4f}, FIFO Gain/Loss={fifo_gain_loss:.4f}")
-
-            elif transaction_type == TYPE_BUY:
-                 original_shares_value = row.get(SHARES)
-                 if pd.isna(original_shares_value) or original_shares_value < 1e-9:
-                      logger.warning(f"Buy row at index {index} has non-positive SHARES ({original_shares_value}). Check data integrity.")
-                 pass
+            else:
+                # Transfer-out: lots consumed and their cost carried forward, but no realised
+                # gain (deferred). RESULT_FIFO_GAIN_LOSS stays NA for this row.
+                logger.debug(f"Transfer-out row {index}: consumed {shares_to_consume:.4f} shares of {ticker}, cost basis {total_cost_basis:.4f} carried forward (no realised gain).")
 
         logger.info("Finished FIFO chronological processing loop.")
 
         internal_df = internal_df.set_index(original_index_name)
         internal_df.index.name = df.index.name
 
-        results_df = internal_df[[RESULT_FIFO_GAIN_LOSS]].copy()
-        results_df = results_df.reindex(df.index)
+        #results_df = internal_df[[RESULT_FIFO_GAIN_LOSS]].copy()
+        #results_df = results_df.reindex(df.index)
+
+        results_df = internal_df
 
         logger.info("Finished FIFO calculate_table (with commissions).")
         return results_df

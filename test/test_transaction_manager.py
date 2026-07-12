@@ -3,15 +3,13 @@
 import pytest
 import pandas as pd
 import numpy as np
-from typing import Any, Sequence, Union, Optional, List, Tuple
-import logging # Import logging for caplog
+from typing import Any, Sequence, Union
+import logging 
 
-# Importar las clases base y TransactionManager
 from pyportfolio.transaction_manager import TransactionManager
 from pyportfolio.calculators.base_calculator import BaseRowCalculator, BaseTableCalculator
 
 # --- Mock Calculators ---
-
 class MockRowCalculator(BaseRowCalculator):
     """Mock row-wise calculator."""
     # __init__ is inherited from BaseRowCalculator

@@ -1,2 +1,5 @@
 include README.md
 include LICENSE
+graft pyportfolio/config
+graft pyportfolio/data
+

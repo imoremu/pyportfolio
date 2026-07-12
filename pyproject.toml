@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mpyportfolio"
+name = "pyportfolio"
 version = "0.1.0"
 description = "Easily analyze portfolio earnings, track investments, and calculate returns with this Python module."
 readme = "README.md"
@@ -19,3 +19,6 @@ classifiers = [
 ]
 dependencies = []
 requires-python = ">=3.6"
+
+[tool.setuptools]
+packages = ["pyportfolio"]

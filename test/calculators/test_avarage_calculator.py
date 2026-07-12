@@ -1,4 +1,3 @@
-import pytest
 import pandas as pd
 from pyportfolio.calculators.average_price_calculator import AveragePriceCalculator
 
