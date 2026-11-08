@@ -2,15 +2,18 @@ import pandas as pd
 import logging
 from typing import List, Optional
 
-from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER, GPP_ALLOWABLE
+from pyportfolio.columns import DATETIME, TRANSACTION_TYPE, TICKER
 
 from pyportfolio.transaction_manager import TransactionManager
 from pyportfolio.calculators.fifo_calculator import FIFOCalculator, RESULT_FIFO_GAIN_LOSS
+from pyportfolio.calculators.transfer_cost_carry import apply_transfer_carried_cost
 from pyportfolio.calculators.irpf_moveable_capital_income_calculator import IRPFMoveableCapitalIncomeCalculator
 from pyportfolio.calculators.irpf_earnings_calculator import (
     IrpfEarningsCalculator,
     GPP_ALLOWABLE,
-    RESULT_DEFERRED_ADJUSTMENT
+    GPP_TOTAL,
+    RESULT_DEFERRED_ADJUSTMENT,
+    RESULT_TRANSFER_BLOCKED_LOSS
 )
 
 # Method to be called from power query with dataset as parameter
@@ -25,7 +28,7 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
 
     fifo_result_column = RESULT_FIFO_GAIN_LOSS
     dividend_result_column = RCM
-    irpf_result_columns = [GPP_ALLOWABLE, RESULT_DEFERRED_ADJUSTMENT]
+    irpf_result_columns = [GPP_ALLOWABLE, GPP_TOTAL, RESULT_DEFERRED_ADJUSTMENT, RESULT_TRANSFER_BLOCKED_LOSS]
     calculated_columns = [fifo_result_column, dividend_result_column] + irpf_result_columns
     fifo_result_dtype = 'Float64'
     dividend_result_dtype = 'Float64' 
@@ -57,6 +60,13 @@ def pq_get_fifo_irpf_data(dataset: pd.DataFrame) -> pd.DataFrame:
             final_results_df['Error'] = f"Missing test column: {TEST_COLUMN_NAME}"
 
         else:
+            # --- Carried-cost pre-pass for fund-to-fund traspasos ---
+            # Must run on the FULL dataset BEFORE grouping: for a traspaso the cost basis
+            # travels between two different funds (and can chain A->B->C), so it cannot be
+            # computed inside the per-fund groups. It rewrites the transfer-in SHARE_PRICE
+            # with the carried cost; the per-fund FIFO then treats it as a normal lot.
+            dataset = apply_transfer_carried_cost(dataset)
+
             # --- Grouped Processing ---
             # Group by the test column AND the ticker for calculation context
             # If calculations are strictly per-test regardless of ticker, remove TICKER here.

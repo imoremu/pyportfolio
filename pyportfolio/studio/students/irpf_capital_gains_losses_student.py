@@ -3,6 +3,7 @@ from pydatastudio.data.studio.students.data_student_configuration import DataStu
 
 from pyportfolio.calculators.fifo_calculator import FIFOCalculator
 from pyportfolio.calculators.fifo_calculator import RESULT_FIFO_GAIN_LOSS
+from pyportfolio.calculators.transfer_cost_carry import apply_transfer_carried_cost
 
 from pyportfolio.calculators.irpf_earnings_calculator import IrpfEarningsCalculator
 from pyportfolio.transaction_manager import TransactionManager
@@ -36,6 +37,10 @@ class IRPFCapitalGainsLossesStudent(AbstractDataBasicStudent):
             pd.DataFrame: A DataFrame with FIFO earnings calculated.
         """
         df = self.studio.research(PORTFOLIO_INITIAL_DATA)
+
+        # Fund-to-fund traspasos: rewrite each transfer-in's price with the cost basis
+        # carried from its paired transfer-out (deferred taxation) BEFORE running FIFO.
+        df = apply_transfer_carried_cost(df)
 
         fifo_calculator = FIFOCalculator()
         tm = TransactionManager(df.copy())

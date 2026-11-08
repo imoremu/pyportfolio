@@ -80,6 +80,64 @@ def run_irpf_calc_direct(data, base_fixture):
 
 # --- Test Cases ---
 
+def test_buy_then_sell_within_window_is_not_blocked(sample_transactions_base):
+    """Buy 20 (having none) and sell them at a loss within the window: the loss is
+    FULLY allowable. A lot cannot block the loss of its own already-sold shares
+    (blocking capacity is reduced by FIFO sales)."""
+    data = {
+        DATETIME: ['2023-01-01', '2023-02-01'],
+        TRANSACTION_TYPE: [TYPE_BUY, TYPE_SELL],
+        TICKER: ['A', 'A'],
+        SHARES: [20.0, -20.0],
+        SHARE_PRICE: [10.0, 8.0],   # loss = 20 * (8 - 10) = -40
+        COMISION: [0.0, 0.0],
+    }
+    df = run_irpf_calc_direct(data, sample_transactions_base)
+    sell = df[df[TRANSACTION_TYPE] == TYPE_SELL].iloc[0]
+    assert sell[GPP_ALLOWABLE] == pytest.approx(-40.0)
+    assert sell[GPP_TOTAL] == pytest.approx(-40.0)
+
+
+def test_deferred_loss_not_released_until_fifo_reaches_repurchase(sample_transactions_base):
+    """Buy 100, a year later buy 20 and sell 20 at a loss (blocked by the 20 repurchased).
+    Two years later sell 70: by FIFO this consumes the OLD lot only, never reaching the
+    repurchased shares, so the deferred loss stays blocked."""
+    data = {
+        DATETIME: ['2021-01-01', '2022-01-01', '2022-01-15', '2024-01-01'],
+        TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL, TYPE_SELL],
+        TICKER: ['A', 'A', 'A', 'A'],
+        SHARES: [100.0, 20.0, -20.0, -70.0],
+        SHARE_PRICE: [10.0, 12.0, 8.0, 15.0],
+        COMISION: [0.0, 0.0, 0.0, 0.0],
+    }
+    df = run_irpf_calc_direct(data, sample_transactions_base)
+    wash_sell = df[(df[TRANSACTION_TYPE] == TYPE_SELL) & (df[SHARES] == -20.0)].iloc[0]
+    repurchase = df[(df[TRANSACTION_TYPE] == TYPE_BUY) & (df[SHARES] == 20.0)].iloc[0]
+    big_sell = df[(df[TRANSACTION_TYPE] == TYPE_SELL) & (df[SHARES] == -70.0)].iloc[0]
+
+    assert wash_sell[GPP_ALLOWABLE] == pytest.approx(0.0)   # loss blocked
+    assert repurchase[RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(40.0)
+    assert big_sell[GPP_ALLOWABLE] == pytest.approx(350.0)  # 70 @10 cost -> gain 350, nothing released
+
+
+def test_deferred_loss_released_when_fifo_reaches_repurchase(sample_transactions_base):
+    """Same as above but selling 90: FIFO consumes the 80 old shares + 10 of the
+    repurchased ones, releasing the deferred loss of exactly 10 participaciones (20 EUR)."""
+    data = {
+        DATETIME: ['2021-01-01', '2022-01-01', '2022-01-15', '2024-01-01'],
+        TRANSACTION_TYPE: [TYPE_BUY, TYPE_BUY, TYPE_SELL, TYPE_SELL],
+        TICKER: ['A', 'A', 'A', 'A'],
+        SHARES: [100.0, 20.0, -20.0, -90.0],
+        SHARE_PRICE: [10.0, 12.0, 8.0, 15.0],
+        COMISION: [0.0, 0.0, 0.0, 0.0],
+    }
+    df = run_irpf_calc_direct(data, sample_transactions_base)
+    big_sell = df[(df[TRANSACTION_TYPE] == TYPE_SELL) & (df[SHARES] == -90.0)].iloc[0]
+    # Gross (no deferral) = 90*15 - (80*10 + 10*12) = 430.
+    # 10 repurchased shares carry the deferred loss (adjusted cost 14) -> 20 EUR recovered -> 410.
+    assert big_sell[GPP_ALLOWABLE] == pytest.approx(410.0)
+
+
 def test_irpf_gain_is_calculated(sample_transactions_base):
     """ Test gain: Sell row has gain, Buy row has 0.0. """
     data = {

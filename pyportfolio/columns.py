@@ -5,10 +5,15 @@ AVAILABLE_SHARES = "Participaciones disponibles"
 DATETIME = "Fecha/Hora"
 TICKER = "Producto"
 COMISION = "Comisión"
+COUNTERPARTY_PRODUCT = "Producto Contraparte"
+TRANSACTION_ID = "ID Transacción"
+MIRROR_TRANSACTION_ID = "ID Transacción Espejo"
+TEST = "Test"
 
 TYPE_BUY = "compra"
 TYPE_SELL = "venta"
 TYPE_DIVIDEND = "dividendos"
+TYPE_TRANSFER = "traspaso"
 
 YEAR = 'Year'
 

@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 import logging
 import numpy as np
 
-from pyportfolio.calculators.base_calculator import BaseTableCalculator
+from pyportfolio.calculators.base_calculator import BaseTableCalculator, is_overselling
 
 from pyportfolio.columns import (
     SHARE_PRICE,
@@ -13,15 +13,21 @@ from pyportfolio.columns import (
     TICKER,
     DATETIME,
     COMISION,
-    TYPE_BUY, 
+    TYPE_BUY,
     TYPE_SELL,
+    TYPE_TRANSFER,
     GPP_ALLOWABLE,
-    GPP_TOTAL,    
+    GPP_TOTAL,
     RESULT_DEFERRED_ADJUSTMENT
 )
 
 
-_RESULT_COLUMNS = [GPP_ALLOWABLE, GPP_TOTAL, RESULT_DEFERRED_ADJUSTMENT]
+# Warning-only column: euros of blocked/deferred loss (two-month rule) that a fund-to-fund
+# transfer-out carries to the destination fund. Its RECOVERY in the destination is not yet
+# modelled (see Phase D); this flags the cases so they are visible (e.g. coloured in Power BI).
+RESULT_TRANSFER_BLOCKED_LOSS = "Traspaso - Pérdida Bloqueada Trasladada"
+
+_RESULT_COLUMNS = [GPP_ALLOWABLE, GPP_TOTAL, RESULT_DEFERRED_ADJUSTMENT, RESULT_TRANSFER_BLOCKED_LOSS]
 
 _INTERNAL_AVAILABLE_SHARES = '_IrpfAvailableShares'
 _INTERNAL_DEFERRED_ADJUSTMENT_STATE = '_IrpfDeferredAdjustmentState'
@@ -126,24 +132,30 @@ class IrpfEarningsCalculator(BaseTableCalculator):
         internal_df[GPP_ALLOWABLE] = pd.NA
         internal_df[GPP_TOTAL] = pd.NA
         internal_df[RESULT_DEFERRED_ADJUSTMENT] = pd.NA
+        internal_df[RESULT_TRANSFER_BLOCKED_LOSS] = pd.NA
         internal_df[GPP_ALLOWABLE] = internal_df[GPP_ALLOWABLE].astype('Float64')
         internal_df[GPP_TOTAL] = internal_df[GPP_TOTAL].astype('Float64')
         internal_df[RESULT_DEFERRED_ADJUSTMENT] = internal_df[RESULT_DEFERRED_ADJUSTMENT].astype('Float64')
+        internal_df[RESULT_TRANSFER_BLOCKED_LOSS] = internal_df[RESULT_TRANSFER_BLOCKED_LOSS].astype('Float64')
         # ---
 
-        # Initialize state for buy transactions (positive shares)
-        buy_mask = (internal_df[TRANSACTION_TYPE].str.lower() == TYPE_BUY) & (internal_df[SHARES] > 1e-9)
+        # Initialize state for rows that ADD shares: buys and transfer-ins (traspaso, positive
+        # shares). For a transfer-in, SHARE_PRICE already carries the cost basis brought from
+        # the origin fund (set by the carried-cost pre-pass), so the same cost formula applies.
+        # Note: transfer-ins are NOT treated as "repurchases" for the two-month rule
+        # (_find_repurchases still matches TYPE_BUY only), so their blocking capacity is unused.
+        entry_mask = internal_df[TRANSACTION_TYPE].str.lower().isin([TYPE_BUY, TYPE_TRANSFER]) & (internal_df[SHARES] > 1e-9)
 
-        total_cost_buy = (internal_df.loc[buy_mask, SHARES] * internal_df.loc[buy_mask, SHARE_PRICE]) + internal_df.loc[buy_mask, COMISION]
-        # Avoid division by zero if SHARES is somehow zero on a buy row
-        shares_for_cost_calc = internal_df.loc[buy_mask, SHARES].replace(0, np.nan)
-        cost_per_share_buy_with_commission = total_cost_buy / shares_for_cost_calc
-        cost_per_share_buy_with_commission = cost_per_share_buy_with_commission.replace([np.inf, -np.inf], 0).fillna(0)
+        total_cost_entry = (internal_df.loc[entry_mask, SHARES] * internal_df.loc[entry_mask, SHARE_PRICE]) + internal_df.loc[entry_mask, COMISION]
+        # Avoid division by zero if SHARES is somehow zero on an entry row
+        shares_for_cost_calc = internal_df.loc[entry_mask, SHARES].replace(0, np.nan)
+        cost_per_share_entry_with_commission = total_cost_entry / shares_for_cost_calc
+        cost_per_share_entry_with_commission = cost_per_share_entry_with_commission.replace([np.inf, -np.inf], 0).fillna(0)
 
-        internal_df.loc[buy_mask, _INTERNAL_AVAILABLE_SHARES] = internal_df.loc[buy_mask, SHARES]
-        internal_df.loc[buy_mask, _INTERNAL_BLOCKING_CAPACITY_REMAINING] = internal_df.loc[buy_mask, SHARES]
-        internal_df.loc[buy_mask, _INTERNAL_ADJUSTED_COST_PER_SHARE] = cost_per_share_buy_with_commission
-        internal_df.loc[buy_mask, _INTERNAL_ORIGINAL_COST_PER_SHARE_WITH_COMMISSION] = cost_per_share_buy_with_commission
+        internal_df.loc[entry_mask, _INTERNAL_AVAILABLE_SHARES] = internal_df.loc[entry_mask, SHARES]
+        internal_df.loc[entry_mask, _INTERNAL_BLOCKING_CAPACITY_REMAINING] = internal_df.loc[entry_mask, SHARES]
+        internal_df.loc[entry_mask, _INTERNAL_ADJUSTED_COST_PER_SHARE] = cost_per_share_entry_with_commission
+        internal_df.loc[entry_mask, _INTERNAL_ORIGINAL_COST_PER_SHARE_WITH_COMMISSION] = cost_per_share_entry_with_commission
 
 
         logger.info("Starting IRPF chronological processing loop within calculate_table...")
@@ -178,13 +190,23 @@ class IrpfEarningsCalculator(BaseTableCalculator):
                          logger.warning(f"Row {index} ({row.get(DATETIME)} / Ticker: {row.get(TICKER)}) has Transaction Type '{TYPE_BUY}' but non-positive SHARES ({shares_value}). IRPF results set to 0.0, but check data integrity for cost basis calculations.")
                     
                     # For IRPF capital gains, a buy itself doesn't generate taxable gain/loss immediately.
-                    
                     internal_df.loc[index, GPP_ALLOWABLE] = 0.0
                     internal_df.loc[index, GPP_TOTAL] = 0.0
-                    
+
                     # RESULT_DEFERRED_ADJUSTMENT for buy rows is populated at the end from _INTERNAL_DEFERRED_ADJUSTMENT_STATE
                     
                     internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = 0.0
+
+                elif transaction_type == TYPE_TRANSFER:
+                    # Fund-to-fund traspaso: a transfer-in adds a lot (initialised above) and a
+                    # transfer-out consumes lots so the origin fund reduces its availability.
+                    # Neither realises a taxable gain/loss (deferred taxation), so GPP is NA.
+                    logger.debug(f"Processing TRANSFER row {index} (type '{TYPE_TRANSFER}'): {row.get(DATETIME)} / Ticker: {row.get(TICKER)}, Shares: {shares_value})")
+                    if shares_value < -1e-9:
+                        self._consume_transfer_out(row, index, internal_df)
+                    internal_df.loc[index, GPP_ALLOWABLE] = None
+                    internal_df.loc[index, GPP_TOTAL] = None
+                    internal_df.loc[index, RESULT_DEFERRED_ADJUSTMENT] = None
 
                 else:
                     # Handles transaction types that are not explicitly TYPE_SELL or TYPE_BUY (e.g., 'dividend')
@@ -249,21 +271,23 @@ class IrpfEarningsCalculator(BaseTableCalculator):
              logger.warning(f"Sell row {sell_index} missing essential data or has non-negative SHARES. Cannot calculate.")
              return (None, None)
 
-         # Find previous buys using the 0..N-1 index
+         # Find previous entries (buys and transfer-ins) using the 0..N-1 index
          previous_buys = internal_df[
              (internal_df.index < sell_index) & # Use 0..N-1 index for comparison
              (internal_df[TICKER] == ticker) &
-             (internal_df[TRANSACTION_TYPE].str.lower() == TYPE_BUY) &
+             (internal_df[TRANSACTION_TYPE].str.lower().isin([TYPE_BUY, TYPE_TRANSFER])) &
              (internal_df[_INTERNAL_AVAILABLE_SHARES] > 1e-9)
          ]
 
          total_available_before = previous_buys[_INTERNAL_AVAILABLE_SHARES].sum()
 
-         # Check overselling using the absolute quantity
-         if shares_to_sell > total_available_before + 1e-9:
+         # Check overselling using the absolute quantity (magnitude-aware tolerance)
+         if is_overselling(shares_to_sell, total_available_before):
              logger.error(f"Overselling detected for sell {sell_index} (Ticker: {ticker}, Date: {sell_date}). Available: {total_available_before:.4f}, Selling Qty: {shares_to_sell:.4f}")
              # Consider raising an error or returning specific error code
              return (None, None) # Or raise ValueError
+         # Within float-rounding tolerance: clamp any tiny overshoot to the balance.
+         shares_to_sell = min(shares_to_sell, total_available_before)
 
          total_adjusted_cost_basis = 0.0
          remaining_to_sell = shares_to_sell
@@ -281,6 +305,12 @@ class IrpfEarningsCalculator(BaseTableCalculator):
              total_adjusted_cost_basis += consume_from_lot * adjusted_cost_per_share
              internal_df.at[buy_idx, _INTERNAL_AVAILABLE_SHARES] -= consume_from_lot
              remaining_to_sell -= consume_from_lot
+
+             # Shares removed by FIFO are no longer held, so they can no longer block a loss
+             # (two-month rule): reduce this lot's blocking capacity by the same amount. This
+             # prevents a lot from blocking the loss of its own (already sold) shares.
+             current_capacity = internal_df.at[buy_idx, _INTERNAL_BLOCKING_CAPACITY_REMAINING]
+             internal_df.at[buy_idx, _INTERNAL_BLOCKING_CAPACITY_REMAINING] = max(0.0, current_capacity - consume_from_lot)
 
              logger.debug(f"  Sell {sell_index}: Consumed {consume_from_lot:.4f} from buy lot {buy_idx} @ adjusted cost {adjusted_cost_per_share:.4f}. Remaining to sell: {remaining_to_sell:.4f}. Lot available now: {internal_df.at[buy_idx, _INTERNAL_AVAILABLE_SHARES]:.4f}")
 
@@ -363,6 +393,68 @@ class IrpfEarningsCalculator(BaseTableCalculator):
              adjusted_gain_loss = max(adjusted_gain_loss, 0.0)
              logger.debug(f"Sell {sell_index}: Gain calculated = {adjusted_gain_loss:.2f}")
              return (adjusted_gain_loss, adjusted_gain_loss)
+
+    def _consume_transfer_out(self, row: pd.Series, index: int, internal_df: pd.DataFrame) -> None:
+        """
+        Consume available shares (FIFO) for a fund-to-fund transfer-out (traspaso with
+        negative SHARES), so the origin fund's later sells see the reduced balance.
+
+        No gain/loss is realised (deferred taxation) and the two-month rule is not applied.
+        """
+        ticker = row.get(TICKER)
+        original_shares_value = row.get(SHARES)
+
+        if pd.isna(ticker) or pd.isna(original_shares_value) or original_shares_value >= -1e-9:
+            logger.warning(f"Transfer-out row {index} missing essential data or has non-negative SHARES. Skipping consumption.")
+            return
+
+        shares_to_consume = np.abs(original_shares_value)
+
+        previous_entries = internal_df[
+            (internal_df.index < index) &
+            (internal_df[TICKER] == ticker) &
+            (internal_df[TRANSACTION_TYPE].str.lower().isin([TYPE_BUY, TYPE_TRANSFER])) &
+            (internal_df[_INTERNAL_AVAILABLE_SHARES] > 1e-9)
+        ]
+
+        total_available = previous_entries[_INTERNAL_AVAILABLE_SHARES].sum()
+        if is_overselling(shares_to_consume, total_available):
+            # FIFOCalculator already raises on overselling; here we only log to avoid masking it.
+            logger.error(f"Transfer-out {index} (Ticker: {ticker}) consumes {shares_to_consume:.4f} but only {total_available:.4f} available.")
+            return
+        # Within float-rounding tolerance: clamp any tiny overshoot to the balance.
+        shares_to_consume = min(shares_to_consume, total_available)
+
+        remaining = shares_to_consume
+        blocked_loss_carried = 0.0
+        for entry_idx in previous_entries.index:
+            available_in_lot = internal_df.at[entry_idx, _INTERNAL_AVAILABLE_SHARES]
+            consume_from_lot = min(available_in_lot, remaining)
+
+            # If this lot carries a deferred (blocked) loss in its adjusted cost basis
+            # (two-month rule), that loss travels with the shares to the destination fund.
+            # Its recovery there is NOT yet modelled (Phase D); flag the amount for visibility.
+            adjusted = internal_df.at[entry_idx, _INTERNAL_ADJUSTED_COST_PER_SHARE]
+            original = internal_df.at[entry_idx, _INTERNAL_ORIGINAL_COST_PER_SHARE_WITH_COMMISSION]
+            deferred_per_share = adjusted - original
+            if deferred_per_share > 1e-9:
+                blocked_loss_carried += consume_from_lot * deferred_per_share
+
+            internal_df.at[entry_idx, _INTERNAL_AVAILABLE_SHARES] -= consume_from_lot
+            # Transferred-out shares are no longer held in this fund -> drop their blocking capacity.
+            current_capacity = internal_df.at[entry_idx, _INTERNAL_BLOCKING_CAPACITY_REMAINING]
+            internal_df.at[entry_idx, _INTERNAL_BLOCKING_CAPACITY_REMAINING] = max(0.0, current_capacity - consume_from_lot)
+            remaining -= consume_from_lot
+            if remaining < 1e-9:
+                break
+
+        if blocked_loss_carried > 1e-9:
+            internal_df.loc[index, RESULT_TRANSFER_BLOCKED_LOSS] = blocked_loss_carried
+            logger.warning(
+                f"Transfer-out row {index} ({ticker}) carries a blocked/deferred loss of "
+                f"{blocked_loss_carried:.4f} to the destination fund. Flagged for review; its "
+                f"recovery in the destination is NOT yet modelled (Phase D)."
+            )
 
     def _find_repurchases(self, ticker: str, current_date: pd.Timestamp, lookup_df: pd.DataFrame) -> pd.DataFrame:
         """

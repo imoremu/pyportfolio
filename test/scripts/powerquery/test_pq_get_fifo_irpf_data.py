@@ -9,9 +9,12 @@ from pyportfolio.scripts.powerquery.pq_get_fifo_irpf_data import pq_get_fifo_irp
 # Column constants used in the script and for assertions
 from pyportfolio.columns import (
     DATETIME, TRANSACTION_TYPE, TICKER, SHARES, SHARE_PRICE, COMISION,
-    TYPE_BUY, TYPE_SELL, TYPE_DIVIDEND, GPP_ALLOWABLE, RESULT_DEFERRED_ADJUSTMENT
+    TYPE_BUY, TYPE_SELL, TYPE_DIVIDEND, TYPE_TRANSFER,
+    GPP_ALLOWABLE, RESULT_DEFERRED_ADJUSTMENT,
+    TRANSACTION_ID, MIRROR_TRANSACTION_ID
 )
 from pyportfolio.calculators.fifo_calculator import RESULT_FIFO_GAIN_LOSS
+from pyportfolio.calculators.irpf_earnings_calculator import RESULT_TRANSFER_BLOCKED_LOSS
 
 # --- Constants used by the script under test ---
 SCRIPT_TEST_COLUMN_NAME = 'Test'
@@ -160,4 +163,60 @@ def test_multiple_groups_and_tickers(base_input_columns):
     # G2, AAA, SELL (index 5)
     assert result_df.loc[5, RESULT_FIFO_GAIN_LOSS] == pytest.approx(22.4)
     assert result_df.loc[5, GPP_ALLOWABLE] == pytest.approx(22.4)
+
+
+def test_fund_to_fund_traspaso_carries_cost_and_defers_gain(base_input_columns):
+    """End-to-end: A->B traspaso. The pre-pass carries A's cost basis into B so the
+    later sale in B is taxed against the ORIGIN cost, and the transfer-out in A realises
+    no gain (deferred)."""
+    columns = base_input_columns + [TRANSACTION_ID, MIRROR_TRANSACTION_ID]
+    data = [
+        # Fund A: buy 100 @ 50 (cost 5000), then transfer everything to B.
+        ['2023-01-01', 'T', 'A', TYPE_BUY,      100.0,  50.0, 0.0, 'A_BUY', ''],
+        ['2023-02-01', 'T', 'A', TYPE_TRANSFER, -100.0, 50.0, 0.0, 'OUT1',  'IN1'],
+        # Fund B: receives 200 participaciones (dest NAV 100 -> WRONG cost), later sells all @ 120.
+        ['2023-02-01', 'T', 'B', TYPE_TRANSFER,  200.0, 100.0, 0.0, 'IN1',  'OUT1'],
+        ['2023-03-01', 'T', 'B', TYPE_SELL,     -200.0, 120.0, 0.0, 'B_SELL', ''],
+    ]
+    input_df = create_test_df(data, columns)
+    result_df = pq_get_fifo_irpf_data(input_df)
+
+    assert 'Error' not in result_df.columns or result_df['Error'].isna().all()
+
+    # Transfer-out (A) and transfer-in (B) realise no FIFO gain.
+    assert pd.isna(result_df.loc[1, RESULT_FIFO_GAIN_LOSS])
+    assert pd.isna(result_df.loc[2, RESULT_FIFO_GAIN_LOSS])
+
+    # Sale in B: proceeds 200*120 = 24000; carried cost basis 200 * (5000/200) = 5000.
+    # Gain = 24000 - 5000 = 19000  (NOT 4000, which is what the destination NAV would give).
+    assert result_df.loc[3, RESULT_FIFO_GAIN_LOSS] == pytest.approx(19000.0)
+    assert result_df.loc[3, GPP_ALLOWABLE] == pytest.approx(19000.0)
+
+
+def test_transfer_out_flags_blocked_loss_being_carried(base_input_columns):
+    """Warning-only: sell A at a loss, rebuy A within 2 months (loss blocked onto the
+    rebought shares), then traspaso those shares to B. The transfer-out must FLAG the
+    blocked loss it carries (its recovery in B is not yet modelled -> Phase D)."""
+    # Dates: the original buy is kept OUTSIDE the +/- 2 month window of the sell, so only the
+    # rebuy acts as the blocker (mirrors the existing deferral test's date spacing).
+    columns = base_input_columns + [TRANSACTION_ID, MIRROR_TRANSACTION_ID]
+    data = [
+        ['2023-01-01', 'T', 'A', TYPE_BUY,      100.0, 10.0, 0.0, 'A_BUY',   ''],
+        ['2023-06-01', 'T', 'A', TYPE_SELL,    -100.0,  8.0, 0.0, 'A_SELL',  ''],  # loss -200
+        ['2023-07-01', 'T', 'A', TYPE_BUY,      100.0,  9.0, 0.0, 'A_REBUY', ''],  # blocker, adj cost 9+2=11
+        ['2023-09-01', 'T', 'A', TYPE_TRANSFER,-100.0,  9.0, 0.0, 'OUT1',    'IN1'],
+        ['2023-09-03', 'T', 'B', TYPE_TRANSFER, 100.0, 20.0, 0.0, 'IN1',     'OUT1'],
+    ]
+    result_df = pq_get_fifo_irpf_data(create_test_df(data, columns))
+
+    assert 'Error' not in result_df.columns or result_df['Error'].isna().all()
+
+    # Sell fully blocked by the rebuy -> allowable loss 0; blocker deferred adjustment 200.
+    assert result_df.loc[1, GPP_ALLOWABLE] == pytest.approx(0.0)
+    assert result_df.loc[2, RESULT_DEFERRED_ADJUSTMENT] == pytest.approx(200.0)
+
+    # Transfer-out carries the 200 of blocked loss -> flagged. Other rows: NA.
+    assert result_df.loc[3, RESULT_TRANSFER_BLOCKED_LOSS] == pytest.approx(200.0)
+    assert pd.isna(result_df.loc[3, GPP_ALLOWABLE])
+    assert result_df[RESULT_TRANSFER_BLOCKED_LOSS].notna().sum() == 1
 
